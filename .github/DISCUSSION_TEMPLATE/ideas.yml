@@ -1,0 +1,56 @@
+title: "[Idea] "
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Feature Ideas
+        Suggest new middleware, guards, CLI commands, or improvements. Community votes help us prioritize.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or opportunity
+      description: What gap are you seeing? What would be easier or safer with this feature?
+      placeholder: Describe the problem or opportunity...
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: How do you envision this working? API sketch, CLI command, config option, etc.
+      placeholder: |
+        Example:
+        - New guard: `sai guardrail rate-limit --max 100/min`
+        - Config option in guardrail-config.json
+        - Hooks into before_tool_call
+    validations:
+      required: true
+
+  - type: dropdown
+    id: middleware
+    attributes:
+      label: Related middleware
+      description: Which middleware does this relate to?
+      options:
+        - Guardrail
+        - HITL (Human-in-the-Loop)
+        - PII Sanitizer
+        - Tool Call Limits
+        - Model Routing
+        - Context Editing
+        - Plugin System / Core
+        - New middleware
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Have you tried other approaches or workarounds?
+    validations:
+      required: false

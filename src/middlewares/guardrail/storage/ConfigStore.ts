@@ -1,0 +1,370 @@
+/**
+ * Guardrail ConfigStore
+ *
+ * Manages persistence of guardrail configuration.
+ * Default rules are imported from rules/ — not defined here.
+ * Storage: unified sapience-ai-suite.json under key "guardrail"
+ *
+ * SECURITY: All loaded config is validated against the schema.
+ * Invalid/missing fields fall back to hardcoded defaults — never fail-open empty.
+ */
+
+import {
+  GuardrailConfig,
+  DetectionRule,
+  DetectionAction,
+  SeverityLevel,
+  OutputScrubberConfig,
+} from '../types.js';
+import { DEFAULT_RULES } from '../rules/index.js';
+import { logger } from '../../../shared/Logger.js';
+import { ConfigStore as UnifiedStore } from '../../../shared/storage/ConfigStore.js';
+import { STORE_KEY_GUARDRAIL } from '../../../shared/storage/paths.js';
+
+export const DEFAULT_OUTPUT_SCRUBBER_CONFIG: OutputScrubberConfig = {
+  enabled: true,
+  dryRunMode: false,
+  replacementText: '',
+  customPatterns: [],
+};
+
+export const DEFAULT_GUARDRAIL_CONFIG: GuardrailConfig = {
+  version: '2.0.0',
+  enabled: true,
+  dryRunMode: false,
+  unicodeNormalization: true,
+  entropyThreshold: 4.0,
+  rules: DEFAULT_RULES,
+  outputScrubber: { ...DEFAULT_OUTPUT_SCRUBBER_CONFIG },
+  moderation: { rewriteThreshold: 'HIGH' },
+};
+
+// ── Schema validation ──────────────────────────────────────────
+
+const VALID_ACTIONS: DetectionAction[] = ['LOG', 'WARN', 'BLOCK'];
+const VALID_SEVERITIES: SeverityLevel[] = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
+const VALID_RULE_TYPES = ['regex', 'prefix', 'heuristic'];
+const VALID_CONFIDENCE = ['high', 'medium'];
+
+/**
+ * Validate a single detection rule. Returns true if valid, false if invalid.
+ * Invalid rules are logged and excluded — never crash the system.
+ */
+function isValidRule(rule: unknown, index: number, category: string): rule is DetectionRule {
+  if (!rule || typeof rule !== 'object') {
+    logger.warn(`[config-validate] Invalid rule at ${category}[${index}]: not an object`);
+    return false;
+  }
+
+  const r = rule as Record<string, unknown>;
+
+  if (typeof r.name !== 'string' || r.name.length === 0) {
+    logger.warn(`[config-validate] Invalid rule at ${category}[${index}]: missing name`);
+    return false;
+  }
+
+  if (typeof r.type !== 'string' || !VALID_RULE_TYPES.includes(r.type)) {
+    logger.warn(`[config-validate] Invalid rule "${r.name}": bad type "${r.type}"`);
+    return false;
+  }
+
+  if (typeof r.pattern !== 'string') {
+    logger.warn(`[config-validate] Invalid rule "${r.name}": missing pattern`);
+    return false;
+  }
+
+  // Validate regex patterns can compile (catch ReDoS-prone patterns early)
+  if (r.type === 'regex') {
+    try {
+      new RegExp(r.pattern as string, 'gi');
+    } catch {
+      logger.warn(
+        `[config-validate] Invalid rule "${r.name}": regex won't compile: "${(r.pattern as string).slice(0, 50)}"`
+      );
+      return false;
+    }
+  }
+
+  if (typeof r.severity !== 'string' || !VALID_SEVERITIES.includes(r.severity as SeverityLevel)) {
+    logger.warn(`[config-validate] Invalid rule "${r.name}": bad severity "${r.severity}"`);
+    return false;
+  }
+
+  if (typeof r.action !== 'string' || !VALID_ACTIONS.includes(r.action as DetectionAction)) {
+    logger.warn(`[config-validate] Invalid rule "${r.name}": bad action "${r.action}"`);
+    return false;
+  }
+
+  if (r.confidence !== undefined && !VALID_CONFIDENCE.includes(r.confidence as string)) {
+    logger.warn(`[config-validate] Invalid rule "${r.name}": bad confidence "${r.confidence}"`);
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * Validate and sanitize a loaded config. Invalid fields fall back to defaults.
+ * Returns a guaranteed-valid GuardrailConfig.
+ */
+function validateConfig(raw: unknown): GuardrailConfig {
+  const defaults = JSON.parse(JSON.stringify(DEFAULT_GUARDRAIL_CONFIG)) as GuardrailConfig;
+
+  if (!raw || typeof raw !== 'object') {
+    logger.warn('[config-validate] Config is not an object — using defaults');
+    return defaults;
+  }
+
+  const data = raw as Record<string, unknown>;
+  const config: GuardrailConfig = { ...defaults };
+
+  // ── Core fields ─────────────────────────────────────────────
+  if (typeof data.version === 'string') config.version = data.version;
+
+  if (typeof data.enabled === 'boolean') {
+    config.enabled = data.enabled;
+  } else if (data.enabled !== undefined) {
+    logger.warn(`[config-validate] Invalid "enabled": ${data.enabled} — using default (true)`);
+  }
+
+  if (typeof data.dryRunMode === 'boolean') {
+    config.dryRunMode = data.dryRunMode;
+  } else if (data.dryRunMode !== undefined) {
+    logger.warn(`[config-validate] Invalid "dryRunMode": ${data.dryRunMode} — using default`);
+  }
+
+  if (typeof data.unicodeNormalization === 'boolean') {
+    config.unicodeNormalization = data.unicodeNormalization;
+  } else if (data.unicodeNormalization !== undefined) {
+    logger.warn(`[config-validate] Invalid "unicodeNormalization" — using default (true)`);
+    config.unicodeNormalization = true; // SECURITY: force on if invalid
+  }
+
+  // ── Entropy threshold (bounded: 1.0 – 8.0) ─────────────────
+  if (typeof data.entropyThreshold === 'number') {
+    if (data.entropyThreshold >= 1.0 && data.entropyThreshold <= 8.0) {
+      config.entropyThreshold = data.entropyThreshold;
+    } else {
+      logger.warn(
+        `[config-validate] entropyThreshold ${data.entropyThreshold} out of range [1.0, 8.0] — using default (4.0)`
+      );
+      config.entropyThreshold = 4.0;
+    }
+  }
+
+  // ── Rules (validate each rule individually) ─────────────────
+  if (data.rules && typeof data.rules === 'object') {
+    const rules = data.rules as Record<string, unknown>;
+
+    for (const category of ['promptInjection', 'pii', 'suspicious'] as const) {
+      const catRules = rules[category];
+      if (Array.isArray(catRules)) {
+        config.rules[category] = catRules.filter((r, i) =>
+          isValidRule(r, i, category)
+        ) as DetectionRule[];
+        const dropped = catRules.length - config.rules[category].length;
+        if (dropped > 0) {
+          logger.warn(`[config-validate] Dropped ${dropped} invalid rule(s) from ${category}`);
+        }
+      }
+      // If category is missing or not an array, keep defaults
+    }
+  }
+
+  // ── Guard configs (optional — validate if present) ──────────
+  if (data.sensitivePaths && typeof data.sensitivePaths === 'object') {
+    const sp = data.sensitivePaths as Record<string, unknown>;
+    config.sensitivePaths = {
+      enabled: typeof sp.enabled === 'boolean' ? sp.enabled : true,
+      action: VALID_ACTIONS.includes(sp.action as DetectionAction)
+        ? (sp.action as DetectionAction)
+        : 'BLOCK',
+      blockedPaths: Array.isArray(sp.blockedPaths)
+        ? sp.blockedPaths.filter((p): p is string => typeof p === 'string')
+        : [],
+      allowedPaths: Array.isArray(sp.allowedPaths)
+        ? sp.allowedPaths.filter((p): p is string => typeof p === 'string')
+        : [],
+    };
+  }
+
+  if (data.egressControl && typeof data.egressControl === 'object') {
+    const ec = data.egressControl as Record<string, unknown>;
+    config.egressControl = {
+      enabled: typeof ec.enabled === 'boolean' ? ec.enabled : true,
+      defaultAction: VALID_ACTIONS.includes(ec.defaultAction as DetectionAction)
+        ? (ec.defaultAction as DetectionAction)
+        : 'BLOCK',
+      allowedDomains: Array.isArray(ec.allowedDomains)
+        ? ec.allowedDomains.filter((d): d is string => typeof d === 'string')
+        : [],
+      blockDataSending: typeof ec.blockDataSending === 'boolean' ? ec.blockDataSending : true,
+      blockPrivateIPs: typeof ec.blockPrivateIPs === 'boolean' ? ec.blockPrivateIPs : true,
+    };
+  }
+
+  if (data.destructiveCommands && typeof data.destructiveCommands === 'object') {
+    const dc = data.destructiveCommands as Record<string, unknown>;
+    const customPatterns: string[] = [];
+    if (Array.isArray(dc.customPatterns)) {
+      for (const p of dc.customPatterns) {
+        if (typeof p !== 'string') continue;
+        try {
+          new RegExp(p, 'i'); // validate compiles
+          customPatterns.push(p);
+        } catch {
+          logger.warn(
+            `[config-validate] Dropped invalid destructive custom pattern: "${p.slice(0, 50)}"`
+          );
+        }
+      }
+    }
+    config.destructiveCommands = {
+      enabled: typeof dc.enabled === 'boolean' ? dc.enabled : true,
+      action: VALID_ACTIONS.includes(dc.action as DetectionAction)
+        ? (dc.action as DetectionAction)
+        : 'BLOCK',
+      customPatterns,
+    };
+  }
+
+  // ── Output scrubber config (optional — validate if present) ──
+  if (data.outputScrubber && typeof data.outputScrubber === 'object') {
+    const os_ = data.outputScrubber as Record<string, unknown>;
+    const scrubberPatterns: string[] = [];
+    if (Array.isArray(os_.customPatterns)) {
+      for (const p of os_.customPatterns) {
+        if (typeof p !== 'string') continue;
+        try {
+          new RegExp(p, 'gi');
+          scrubberPatterns.push(p);
+        } catch {
+          logger.warn(
+            `[config-validate] Dropped invalid output scrubber custom pattern: "${p.slice(0, 50)}"`
+          );
+        }
+      }
+    }
+    config.outputScrubber = {
+      enabled: typeof os_.enabled === 'boolean' ? os_.enabled : true,
+      dryRunMode: typeof os_.dryRunMode === 'boolean' ? os_.dryRunMode : false,
+      replacementText: typeof os_.replacementText === 'string' ? os_.replacementText : '',
+      customPatterns: scrubberPatterns,
+    };
+  } else {
+    config.outputScrubber = { ...DEFAULT_OUTPUT_SCRUBBER_CONFIG };
+  }
+
+  // ── Moderation config (optional — validate if present) ──
+  const VALID_THRESHOLDS = ['MEDIUM', 'HIGH', 'CRITICAL'] as const;
+  if (data.moderation && typeof data.moderation === 'object') {
+    const m = data.moderation as Record<string, unknown>;
+    const threshold =
+      typeof m.rewriteThreshold === 'string' &&
+      (VALID_THRESHOLDS as readonly string[]).includes(m.rewriteThreshold)
+        ? (m.rewriteThreshold as 'MEDIUM' | 'HIGH' | 'CRITICAL')
+        : 'HIGH';
+    if (m.rewriteThreshold && threshold !== m.rewriteThreshold) {
+      logger.warn(
+        `[config-validate] Invalid moderation.rewriteThreshold "${m.rewriteThreshold}" — using default (HIGH)`
+      );
+    }
+    config.moderation = { rewriteThreshold: threshold };
+  } else {
+    config.moderation = { rewriteThreshold: 'HIGH' };
+  }
+
+  return config;
+}
+
+// ── ConfigStore class ──────────────────────────────────────────
+
+export class ConfigStore {
+  /**
+   * In-memory cached config, kept fresh by ConfigStore.onChange('guardrail', ...).
+   * All hooks use getCached() instead of loadSync() to avoid synchronous
+   * disk reads on every tool call and message write.
+   */
+  private static cachedConfig: GuardrailConfig | null = null;
+
+  /**
+   * Return the cached config (zero I/O). Falls back to loadSync() on
+   * first call before the cache is populated.
+   */
+  static getCached(): GuardrailConfig {
+    if (!this.cachedConfig) {
+      this.cachedConfig = this.loadSync();
+    }
+    return this.cachedConfig;
+  }
+
+  /**
+   * Refresh the in-memory cache from disk. Called by ConfigStore.onChange
+   * watcher registered in plugin/index.ts.
+   */
+  static refreshCache(): void {
+    this.cachedConfig = this.loadSync();
+    logger.debug('Guardrail config cache refreshed');
+  }
+
+  static async load(): Promise<GuardrailConfig> {
+    try {
+      const store = await UnifiedStore.read();
+      const data = store[STORE_KEY_GUARDRAIL];
+
+      if (data && typeof data === 'object' && Object.keys(data).length > 0) {
+        logger.debug('Guardrail config loaded from unified store');
+        return validateConfig(data);
+      }
+
+      logger.debug('No existing guardrail config found, returning defaults');
+      return this.defaults();
+    } catch (error) {
+      // SECURITY: On load failure, return hardcoded defaults — never fail-open empty
+      logger.error('Failed to load guardrail config — falling back to hardcoded defaults', {
+        error,
+      });
+      return this.defaults();
+    }
+  }
+
+  static async save(config: GuardrailConfig): Promise<void> {
+    try {
+      await UnifiedStore.update(STORE_KEY_GUARDRAIL, config);
+      logger.debug('Guardrail config saved to unified store');
+    } catch (error) {
+      logger.error('Failed to save guardrail config', { error });
+      throw new Error(`Failed to save guardrail config: ${error}`);
+    }
+  }
+
+  /**
+   * Return default guardrail config (in-memory, never auto-persisted).
+   */
+  static defaults(): GuardrailConfig {
+    return JSON.parse(JSON.stringify(DEFAULT_GUARDRAIL_CONFIG));
+  }
+
+  static loadSync(): GuardrailConfig {
+    try {
+      const store = UnifiedStore.readSync();
+      const data = store[STORE_KEY_GUARDRAIL];
+
+      if (data && typeof data === 'object' && Object.keys(data).length > 0) {
+        logger.debug('Guardrail config loaded from unified store (sync)');
+        return validateConfig(data);
+      }
+
+      logger.debug('No existing guardrail config, returning defaults (sync)');
+      return this.defaults();
+    } catch (error) {
+      // SECURITY: On load failure, return hardcoded defaults — never fail-open empty
+      logger.error('Failed to load config (sync) — falling back to hardcoded defaults', { error });
+      return this.defaults();
+    }
+  }
+
+  static getPath(): string {
+    return 'sapience-ai-suite.json [guardrail]';
+  }
+}

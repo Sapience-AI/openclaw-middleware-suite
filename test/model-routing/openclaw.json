@@ -1,0 +1,160 @@
+{
+  "meta": {
+    "lastTouchedVersion": "2026.4.8",
+    "lastTouchedAt": "2026-04-08T09:57:52.149Z"
+  },
+  "wizard": {
+    "lastRunAt": "2026-04-08T09:57:51.857Z",
+    "lastRunVersion": "2026.4.8",
+    "lastRunCommand": "configure",
+    "lastRunMode": "local"
+  },
+  "auth": {
+    "profiles": {
+      "anthropic:default": {
+        "provider": "anthropic",
+        "mode": "api_key"
+      }
+    }
+  },
+  "agents": {
+    "defaults": {
+      "compaction": {},
+      "contextPruning": {
+        "mode": "off"
+      },
+      "models": {
+        "anthropic/claude-haiku-4-5": {}
+      },
+      "model": {
+        "primary": "anthropic/claude-sonnet-4-6",
+        "fallbacks": [
+          "sapience-router/auto",
+          "sapience-router/eco",
+          "sapience-router/premium",
+          "sapience-router/agentic",
+          "anthropic/claude-haiku-4-5"
+        ]
+      }
+    }
+  },
+  "commands": {
+    "native": "auto",
+    "nativeSkills": "auto",
+    "restart": true,
+    "ownerDisplay": "raw"
+  },
+  "gateway": {
+    "mode": "local",
+    "auth": {
+      "mode": "token",
+      "token": "3411dde1eecd3d61c181111d8b4ec36df0786033cd8d8c30"
+    }
+  },
+  "plugins": {
+    "allow": [
+      "sapience-ai-suite",
+      "anthropic"
+    ],
+    "load": {
+      "paths": [
+        "/home/shariq/Openclaw-Middleware-Suite"
+      ]
+    },
+    "entries": {
+      "sapience-ai-suite": {
+        "enabled": true,
+        "config": {
+          "middlewares": {
+            "context-editing": false,
+            "hitl": false,
+            "model-routing": true
+          },
+          "defaultAction": "ASK"
+        }
+      },
+      "anthropic": {
+        "enabled": true
+      }
+    }
+  },
+  "models": {
+    "providers": {
+      "sapience-router": {
+        "baseUrl": "http://127.0.0.1:8402/v1",
+        "api": "openai-completions",
+        "apiKey": "sapience-proxy-handles-routing",
+        "models": [
+          {
+            "id": "auto",
+            "name": "Auto (Smart Router — Balanced)",
+            "reasoning": true,
+            "input": [
+              "text",
+              "image"
+            ],
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "contextWindow": 200000,
+            "maxTokens": 128000
+          },
+          {
+            "id": "eco",
+            "name": "Eco (Smart Router — Cost Optimized)",
+            "reasoning": true,
+            "input": [
+              "text",
+              "image"
+            ],
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "contextWindow": 200000,
+            "maxTokens": 128000
+          },
+          {
+            "id": "premium",
+            "name": "Premium (Smart Router — Best Quality)",
+            "reasoning": true,
+            "input": [
+              "text",
+              "image"
+            ],
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "contextWindow": 200000,
+            "maxTokens": 128000
+          },
+          {
+            "id": "agentic",
+            "name": "Agentic (Smart Router — Tool Optimized)",
+            "reasoning": true,
+            "input": [
+              "text",
+              "image"
+            ],
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "contextWindow": 200000,
+            "maxTokens": 128000
+          }
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,105 @@
+{
+  "name": "sapience-ai-suite",
+  "type": "module",
+  "version": "1.0.0",
+  "description": "Sapience AI Suite — the intervention layer for OpenClaw.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "sai": "./dist/index.js"
+  },
+  "scripts": {
+    "prebuild": "node -e \"fs.rmSync('dist', { recursive: true, force: true })\"",
+    "build": "npm run build:backend && npm run build:dashboard",
+    "build:backend": "tsc",
+    "build:dashboard": "vite build --config src/dashboard/vite.config.ts",
+    "dev:dashboard": "vite --config src/dashboard/vite.config.ts --port 5173",
+    "test": "npm run build && node --test test/**/*.test.mjs",
+    "test:coverage": "npm run build && c8 --check-coverage --lines 75 --branches 70 --statements 75 --reporter=text --reporter=text-summary --reporter=json-summary --reporter=lcov node --test test/**/*.test.mjs",
+    "test:coverage:report": "npm run build && c8 --reporter=text --reporter=text-summary --reporter=json-summary --reporter=lcov node --test test/**/*.test.mjs",
+    "lint": "eslint src --ext .ts",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "metrics": "node scripts/adoption-metrics.mjs",
+    "metrics:json": "node scripts/adoption-metrics.mjs --json",
+    "metrics:csv": "node scripts/adoption-metrics.mjs --csv",
+    "dashboard": "node scripts/dashboard.mjs",
+    "demo:destructive": "ts-node scripts/demo-destructive.ts",
+    "prepublishOnly": "npm run build",
+    "prepare": "husky"
+  },
+  "keywords": [
+    "security",
+    "middleware",
+    "ai-agents",
+    "openclaw",
+    "human-in-the-loop",
+    "runtime-interception",
+    "zero-trust"
+  ],
+  "author": "Shariq Ali <discovery.shariq.ali@sapienceai.co>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Sapience-AI-Discovery-Team/Openclaw-Middleware-Suite.git"
+  },
+  "dependencies": {
+    "bash-parser": "^0.5.0",
+    "chalk": "^4.1.2",
+    "commander": "^11.1.0",
+    "fs-extra": "^11.2.0",
+    "inquirer": "^9.2.12",
+    "otpauth": "^9.5.0",
+    "winston": "^3.11.0"
+  },
+  "devDependencies": {
+    "@preact/preset-vite": "^2.8.0",
+    "@preact/signals": "^1.2.0",
+    "@types/fs-extra": "^11.0.4",
+    "@types/inquirer": "^9.0.7",
+    "@types/node": "^20.10.5",
+    "@typescript-eslint/eslint-plugin": "^8.58.2",
+    "@typescript-eslint/parser": "^8.58.2",
+    "c8": "^11.0.0",
+    "eslint": "^8.56.0",
+    "preact": "^10.19.0",
+    "preact-router": "^4.1.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.4.0",
+    "prettier": "^3.1.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3",
+    "uplot": "^1.6.31",
+    "vite": "^6.1.0"
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md",
+    "openclaw.plugin.json"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "lint-staged": {
+    "*.ts": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{js,mjs}": [
+      "prettier --write"
+    ]
+  },
+  "openclaw": {
+    "extensions": [
+      "dist/plugin/index.js"
+    ],
+    "compat": {
+      "pluginApi": ">=2026.4.11",
+      "minGatewayVersion": "2026.4.11"
+    },
+    "build": {
+      "openclawVersion": "2026.4.11",
+      "pluginSdkVersion": "2026.4.11"
+    }
+  }
+}

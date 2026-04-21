@@ -1,0 +1,81 @@
+{
+  "id": "sapience-ai-suite",
+  "name": "Sapience AI Suite",
+  "description": "Sapience AI Suite — the intervention layer for OpenClaw.",
+  "version": "1.0.0",
+  "main": "dist/plugin/index.js",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "middlewares": {
+        "type": "object",
+        "description": "Toggles for individual middlewares.",
+        "properties": {
+          "hitl": {
+            "type": "boolean",
+            "default": true
+          },
+          "context-editing": {
+            "type": "boolean",
+            "default": true
+          },
+          "model-routing": {
+            "type": "boolean",
+            "default": false
+          },
+          "guardrail": {
+            "type": "boolean",
+            "default": false
+          },
+          "output-guardrail": {
+            "type": "boolean",
+            "default": false
+          },
+          "pii-sanitizer": {
+            "type": "boolean",
+            "default": false
+          },
+          "tool-call-limit": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "default": {
+          "hitl": true,
+          "context-editing": true,
+          "model-routing": false,
+          "guardrail": false,
+          "output-guardrail": false,
+          "pii-sanitizer": false,
+          "tool-call-limit": false
+        }
+      },
+      "defaultAction": {
+        "type": "string",
+        "enum": ["ALLOW", "DENY", "ASK"],
+        "default": "ASK",
+        "description": "Default action for unknown tools"
+      },
+      "fallbackChannel": {
+        "type": "object",
+        "description": "Channel to notify when no session channel context exists (e.g. TUI sessions)",
+        "additionalProperties": false,
+        "required": ["channelId", "to"],
+        "properties": {
+          "channelId": {
+            "type": "string",
+            "enum": ["whatsapp", "telegram"]
+          },
+          "to": {
+            "type": "string",
+            "description": "Phone number or chat ID to send approval notifications to"
+          },
+          "accountId": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

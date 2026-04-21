@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Discussion Forum
+    url: https://github.com/Sapience-AI-Discovery-Team/Openclaw-Middleware-Suite/discussions
+    about: Have a question? Start a discussion instead
+  - name: Documentation
+    url: https://github.com/Sapience-AI-Discovery-Team/Openclaw-Middleware-Suite#-documentation
+    about: Check our complete documentation
+  - name: Security Issues
+    url: https://github.com/Sapience-AI-Discovery-Team/Openclaw-Middleware-Suite/blob/main/docs/security.md
+    about: Report security vulnerabilities responsibly

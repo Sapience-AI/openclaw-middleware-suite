@@ -1,0 +1,80 @@
+import { useState } from 'preact/hooks';
+
+interface Column {
+  key: string;
+  label: string;
+  render?: (value: unknown, row: Record<string, unknown>) => string | preact.ComponentChildren;
+  mono?: boolean;
+}
+
+interface DataTableProps {
+  columns: Column[];
+  data: Record<string, unknown>[];
+  pageSize?: number;
+  emptyText?: string;
+}
+
+export function DataTable({ columns, data, pageSize = 20, emptyText = 'No data' }: DataTableProps) {
+  const [page, setPage] = useState(0);
+  const totalPages = Math.max(1, Math.ceil(data.length / pageSize));
+  const start = page * pageSize;
+  const pageData = data.slice(start, start + pageSize);
+
+  if (data.length === 0) {
+    return (
+      <div class="data-table-wrap">
+        <div style={{ padding: '32px', textAlign: 'center', color: 'var(--sai-text-muted)' }}>
+          {emptyText}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div class="data-table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            {columns.map((col) => (
+              <th key={col.key}>{col.label}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {pageData.map((row, i) => (
+            <tr key={i}>
+              {columns.map((col) => (
+                <td key={col.key} class={col.mono ? 'mono' : ''}>
+                  {col.render
+                    ? col.render(row[col.key], row)
+                    : String(row[col.key] ?? '-')}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {totalPages > 1 && (
+        <div style={{ display: 'flex', justifyContent: 'center', gap: '8px', padding: '12px' }}>
+          <button
+            class="btn-secondary btn-sm"
+            onClick={() => setPage(Math.max(0, page - 1))}
+            disabled={page === 0}
+          >
+            Prev
+          </button>
+          <span style={{ fontSize: '13px', lineHeight: '32px', color: 'var(--sai-text-helper)' }}>
+            {page + 1} / {totalPages}
+          </span>
+          <button
+            class="btn-secondary btn-sm"
+            onClick={() => setPage(Math.min(totalPages - 1, page + 1))}
+            disabled={page >= totalPages - 1}
+          >
+            Next
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}

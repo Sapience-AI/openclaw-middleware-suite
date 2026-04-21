@@ -1,0 +1,68 @@
+title: "[Q&A] "
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Questions & Answers
+        Ask a question about setup, configuration, middleware behavior, or troubleshooting. Mark a reply as the answer once resolved.
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Your question
+      description: Be as specific as possible — include what you're trying to achieve.
+      placeholder: How do I...?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of the suite is this about?
+      options:
+        - Installation / Setup
+        - Guardrail configuration
+        - HITL policies / approval flow
+        - PII Sanitizer rules
+        - Tool Call Limits / budgets
+        - Model Routing / proxy
+        - Context Editing / compaction
+        - CLI commands
+        - Plugin development
+        - CI / testing
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-tried
+    attributes:
+      label: What have you tried?
+      description: Share commands, config snippets, or error messages.
+      placeholder: |
+        I ran `sai guardrail status` and got...
+
+        My config looks like:
+        ```json
+        { ... }
+        ```
+    validations:
+      required: false
+
+  - type: input
+    id: version
+    attributes:
+      label: Package version
+      placeholder: e.g. 1.0.0 (run `npm list sapience-ai-suite`)
+    validations:
+      required: false
+
+  - type: input
+    id: node-version
+    attributes:
+      label: Node.js version
+      placeholder: e.g. 20.11.0 (run `node -v`)
+    validations:
+      required: false

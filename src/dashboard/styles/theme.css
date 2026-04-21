@@ -1,0 +1,59 @@
+/* ─── Sapience AI Brand Tokens ──────────────────────────────────────────── */
+
+:root {
+  /* Brand palette */
+  --sai-plum: #674C67;            /* Imperial Plum */
+  --sai-charcoal: #333436;        /* Charcoal Grey */
+  --sai-gray: #C8C4BB;            /* Gray */
+  --sai-sand: #F2F0EA;            /* Sand */
+
+  /* Canvas & Surfaces */
+  --sai-canvas: var(--sai-sand);
+  --sai-surface: #ffffff;
+  --sai-surface-hover: #EEECE6;
+  --sai-sidebar-bg: var(--sai-charcoal);
+  --sai-sidebar-text: var(--sai-gray);
+  --sai-sidebar-active: #ffffff;
+
+  /* Gradient CTAs */
+  --sai-gradient: linear-gradient(135deg, #804780, #8E6FFB, #A78BFA);
+  --sai-gradient-hover: linear-gradient(135deg, #6B3A6B, #7B5CE8, #9678F0);
+  --sai-gradient-text: linear-gradient(135deg, #804780, #8E6FFB);
+
+  /* Accent colors */
+  --sai-purple: #8E6FFB;
+  --sai-purple-deep: #804780;
+  --sai-purple-light: #A78BFA;
+
+  /* Status */
+  --sai-success: #22c55e;
+  --sai-warning: #f59e0b;
+  --sai-error: #ef4444;
+  --sai-info: #3b82f6;
+
+  /* Typography — Inter throughout */
+  --sai-font: 'Inter', system-ui, -apple-system, sans-serif;
+
+  /* Text colors */
+  --sai-text-primary: #292524;
+  --sai-text-secondary: #64605e;
+  --sai-text-label: #111827;
+  --sai-text-helper: #6b7280;
+  --sai-text-muted: var(--sai-gray);
+
+  /* Borders & Shadows */
+  --sai-border: var(--sai-gray);
+  --sai-border-light: #E5E3DD;
+  --sai-glow: rgba(142, 111, 251, 0.15);
+  --sai-glow-strong: rgba(142, 111, 251, 0.3);
+  --sai-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --sai-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --sai-shadow-glow: 0 4px 20px var(--sai-glow);
+
+  /* Sizing */
+  --sai-sidebar-width: 240px;
+  --sai-header-height: 64px;
+  --sai-radius: 12px;
+  --sai-radius-sm: 8px;
+  --sai-radius-xs: 6px;
+}

@@ -1,0 +1,219 @@
+/* ─── Page-specific styles ─────────────────────────────────────────────── */
+
+/* ── Overview ────────────────────────────────────────────────────────────── */
+
+.overview-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+}
+
+.mw-card {
+  background: var(--sai-surface);
+  border: 1px solid var(--sai-border);
+  border-radius: var(--sai-radius);
+  padding: 24px;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.mw-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--sai-shadow-glow);
+}
+
+.mw-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.mw-card-name {
+  font-weight: 600;
+  font-size: 16px;
+  color: var(--sai-text-primary);
+}
+
+.mw-card-desc {
+  font-size: 13px;
+  color: var(--sai-text-helper);
+  line-height: 1.5;
+}
+
+.mw-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--sai-border-light);
+}
+
+.mw-card-link {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--sai-purple);
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.mw-card-link:hover {
+  text-decoration: underline;
+}
+
+/* ── Middleware page layout ───────────────────────────────────────────────── */
+
+.page-section {
+  margin-bottom: 32px;
+}
+
+.page-section-title {
+  font-weight: 600;
+  font-size: 16px;
+  color: var(--sai-text-primary);
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.config-panel {
+  background: var(--sai-surface);
+  border: 1px solid var(--sai-border-light);
+  border-radius: var(--sai-radius);
+  padding: 24px;
+}
+
+.config-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--sai-border-light);
+}
+
+.config-row:last-child {
+  border-bottom: none;
+}
+
+.config-key {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--sai-text-label);
+}
+
+.config-val {
+  font-size: 14px;
+  color: var(--sai-text-primary);
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* ── Tier cards (Model Routing page) ─────────────────────────────────────── */
+
+.tier-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+
+.tier-card {
+  background: var(--sai-surface);
+  border: 1px solid var(--sai-border);
+  border-radius: var(--sai-radius);
+  padding: 20px;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.tier-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--sai-shadow-glow);
+}
+
+.tier-label {
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  display: inline-block;
+  margin-bottom: 12px;
+}
+
+.tier-simple .tier-label {
+  background: rgba(34, 197, 94, 0.1);
+  color: var(--sai-success);
+}
+.tier-standard .tier-label {
+  background: rgba(59, 130, 246, 0.1);
+  color: var(--sai-info);
+}
+.tier-complex .tier-label {
+  background: rgba(142, 111, 251, 0.1);
+  color: var(--sai-purple);
+}
+.tier-reasoning .tier-label {
+  background: rgba(245, 158, 11, 0.1);
+  color: var(--sai-warning);
+}
+
+.tier-model {
+  font-weight: 500;
+  font-size: 15px;
+  color: var(--sai-text-primary);
+  margin-bottom: 8px;
+}
+
+.tier-fallbacks {
+  font-size: 13px;
+  color: var(--sai-text-helper);
+}
+
+/* ── Middleware card pills row & restart hint ────────────────────────────── */
+
+.mw-card-pills {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+
+.mw-restart-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--sai-warning);
+  padding: 3px 8px;
+  border-radius: 20px;
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.18);
+}
+
+.mw-restart-hint svg {
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+
+/* ── Policy table (HITL page) ────────────────────────────────────────────── */
+
+.policy-table td .form-select {
+  padding: 6px 10px;
+  font-size: 13px;
+  min-width: 100px;
+}
+
+@media (max-width: 1024px) {
+  .overview-grid { grid-template-columns: repeat(2, 1fr); }
+  .tier-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 640px) {
+  .overview-grid, .tier-grid { grid-template-columns: 1fr; }
+}

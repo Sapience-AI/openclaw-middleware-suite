@@ -1,0 +1,37 @@
+title: "[Poll] "
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Community Poll
+        Gather community input on priorities, preferences, or direction. Use emoji reactions on options or provide a structured poll below.
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Poll question
+      description: What are you asking the community?
+      placeholder: e.g. Which middleware should we focus on improving next?
+    validations:
+      required: true
+
+  - type: textarea
+    id: options
+    attributes:
+      label: Options
+      description: List the options. Voters can react with emojis or reply with their pick.
+      placeholder: |
+        1. Option A
+        2. Option B
+        3. Option C
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Why are you running this poll? Any background that helps voters decide.
+    validations:
+      required: false
