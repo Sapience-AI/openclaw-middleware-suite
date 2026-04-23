@@ -306,6 +306,37 @@ export async function handleApiRoute(
       json(res, 200, records);
       return;
     }
+    if (urlPath === '/api/hitl/audit-path' && method === 'GET') {
+      json(res, 200, { path: HITL_DECISIONS_FILE });
+      return;
+    }
+    if (urlPath === '/api/hitl/policy-path' && method === 'GET') {
+      const { PolicyStore } = await lazyImport('../../middlewares/hitl/storage/PolicyStore.js');
+      json(res, 200, { path: PolicyStore.getPath() });
+      return;
+    }
+    if (urlPath === '/api/hitl/presets' && method === 'GET') {
+      const presetsMod = await lazyImport('../../middlewares/hitl/presets.js');
+      const configMod = await lazyImport('../../middlewares/hitl/config.js');
+      json(res, 200, {
+        presets: presetsMod.SECURITY_PRESETS,
+        defaultModules: presetsMod.DEFAULT_MODULES,
+        defaultThresholds: configMod.DEFAULT_POLICY?.systemThresholds,
+      });
+      return;
+    }
+    if (urlPath === '/api/hitl/stats/reset' && method === 'POST') {
+      const { StatsTracker } = await lazyImport('../../middlewares/hitl/storage/StatsTracker.js');
+      await StatsTracker.reset();
+      json(res, 200, { ok: true });
+      return;
+    }
+    if (urlPath === '/api/hitl/policy/reset' && method === 'POST') {
+      const { PolicyStore } = await lazyImport('../../middlewares/hitl/storage/PolicyStore.js');
+      await PolicyStore.reset();
+      json(res, 200, { ok: true });
+      return;
+    }
 
     // ── Model Routing endpoints ──────────────────────────────────────────
     if (urlPath === '/api/routing/stats' && method === 'GET') {
@@ -418,6 +449,37 @@ export async function handleApiRoute(
       json(res, 200, records);
       return;
     }
+    if (urlPath === '/api/guardrail/config-path' && method === 'GET') {
+      try {
+        const mod = await lazyImport('../../middlewares/guardrail/storage/ConfigStore.js');
+        const GConfigStore = mod.ConfigStore || mod.default;
+        json(res, 200, { path: GConfigStore.getPath() });
+      } catch {
+        json(res, 200, { path: 'sapience-ai-suite.json [guardrail]' });
+      }
+      return;
+    }
+    if (urlPath === '/api/guardrail/defaults' && method === 'GET') {
+      try {
+        const mod = await lazyImport('../../middlewares/guardrail/storage/ConfigStore.js');
+        const GConfigStore = mod.ConfigStore || mod.default;
+        json(res, 200, GConfigStore.defaults());
+      } catch {
+        json(res, 500, { error: 'Failed to load guardrail defaults' });
+      }
+      return;
+    }
+    if (urlPath === '/api/guardrail/reset' && method === 'POST') {
+      try {
+        const mod = await lazyImport('../../middlewares/guardrail/storage/ConfigStore.js');
+        const GConfigStore = mod.ConfigStore || mod.default;
+        await GConfigStore.save(GConfigStore.defaults());
+        json(res, 200, { ok: true });
+      } catch {
+        json(res, 500, { error: 'Failed to reset guardrail config' });
+      }
+      return;
+    }
 
     // ── PII Sanitizer endpoints ──────────────────────────────────────────
     if (urlPath === '/api/pii/policy' && method === 'GET') {
@@ -449,6 +511,40 @@ export async function handleApiRoute(
       const limit = parseInt(query.limit || '100', 10);
       const records = await readAuditFile(PII_SANITIZER_AUDIT_FILE, limit);
       json(res, 200, records);
+      return;
+    }
+    if (urlPath === '/api/pii/policy-path' && method === 'GET') {
+      try {
+        const { DlpStore } = await lazyImport(
+          '../../middlewares/pii-sanitizer/storage/DlpStore.js'
+        );
+        json(res, 200, { path: DlpStore.getPath() });
+      } catch {
+        json(res, 200, { path: 'sapience-ai-suite.json [pii_sanitizer]' });
+      }
+      return;
+    }
+    if (urlPath === '/api/pii/defaults' && method === 'GET') {
+      try {
+        const { DlpStore } = await lazyImport(
+          '../../middlewares/pii-sanitizer/storage/DlpStore.js'
+        );
+        json(res, 200, DlpStore.defaults());
+      } catch {
+        json(res, 500, { error: 'Failed to load DLP defaults' });
+      }
+      return;
+    }
+    if (urlPath === '/api/pii/reset' && method === 'POST') {
+      try {
+        const { DlpStore } = await lazyImport(
+          '../../middlewares/pii-sanitizer/storage/DlpStore.js'
+        );
+        await DlpStore.save(DlpStore.defaults());
+        json(res, 200, { ok: true });
+      } catch {
+        json(res, 500, { error: 'Failed to reset DLP policy' });
+      }
       return;
     }
 
@@ -487,6 +583,74 @@ export async function handleApiRoute(
         json(res, 200, data);
       } catch {
         json(res, 200, { sessions: {}, requests: {} });
+      }
+      return;
+    }
+    if (urlPath === '/api/limits/policy-path' && method === 'GET') {
+      try {
+        const { LimitPolicyStore } = await lazyImport(
+          '../../middlewares/tool-call-limit/storage/LimitPolicyStore.js'
+        );
+        json(res, 200, { path: LimitPolicyStore.getPath() });
+      } catch {
+        json(res, 200, { path: 'sapience-ai-suite.json [tool_call_limit]' });
+      }
+      return;
+    }
+    if (urlPath === '/api/limits/defaults' && method === 'GET') {
+      try {
+        const { DEFAULT_LIMIT_POLICY } = await lazyImport(
+          '../../middlewares/tool-call-limit/types.js'
+        );
+        json(res, 200, DEFAULT_LIMIT_POLICY);
+      } catch {
+        json(res, 200, { modules: {} });
+      }
+      return;
+    }
+    if (urlPath === '/api/limits/policy/reset' && method === 'POST') {
+      try {
+        const { LimitPolicyStore } = await lazyImport(
+          '../../middlewares/tool-call-limit/storage/LimitPolicyStore.js'
+        );
+        await LimitPolicyStore.reset();
+        json(res, 200, { ok: true });
+      } catch {
+        json(res, 500, { error: 'Failed to reset limit policy' });
+      }
+      return;
+    }
+    if (urlPath === '/api/limits/trackers/reset' && method === 'POST') {
+      try {
+        const body = JSON.parse((await readBody(req)) || '{}') as {
+          scope?: 'all' | 'session' | 'request';
+        };
+        const scope = body.scope ?? 'all';
+        const resetSession = scope === 'all' || scope === 'session';
+        const resetRequest = scope === 'all' || scope === 'request';
+        const fsMod = (await import('fs-extra')) as typeof import('fs-extra') & {
+          default?: typeof import('fs-extra');
+        };
+        const fsExtra = fsMod.default ?? fsMod;
+        const pathsMod = await lazyImport('../storage/paths.js');
+        if (resetSession) {
+          await fsExtra.remove(pathsMod.TOOL_CALL_LIMIT_SESSIONS_FILE);
+        }
+        if (resetRequest) {
+          await fsExtra.remove(pathsMod.TOOL_CALL_LIMIT_REQUESTS_FILE);
+          await fsExtra.remove(pathsMod.TOOL_CALL_LIMIT_LAST_REQ_FILE);
+        }
+        const { LimitPolicyStore } = await lazyImport(
+          '../../middlewares/tool-call-limit/storage/LimitPolicyStore.js'
+        );
+        const policy = await LimitPolicyStore.load();
+        const now = new Date().toISOString();
+        policy.resetAt = now;
+        policy.resetScope = scope;
+        await LimitPolicyStore.save(policy);
+        json(res, 200, { ok: true, resetAt: now, scope });
+      } catch (err) {
+        json(res, 500, { error: `Failed to reset trackers: ${err}` });
       }
       return;
     }

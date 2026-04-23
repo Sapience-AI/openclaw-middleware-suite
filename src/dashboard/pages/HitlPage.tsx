@@ -4,25 +4,32 @@ import {
   fetchHitlPolicy,
   updateHitlPolicy,
   fetchHitlDecisions,
+  fetchHitlAuditPath,
+  resetHitlStats,
+  resetHitlPolicy,
 } from '../services/api';
 import { StatCard } from '../components/StatCard';
 import { DataTable } from '../components/DataTable';
 import { LogViewer } from '../components/LogViewer';
 import { ConfigForm, FormField } from '../components/ConfigForm';
+import { HitlRuleEditor } from '../components/HitlRuleEditor';
+import { GradientButton } from '../components/GradientButton';
+import { showToast } from '../components/Toast';
 import { formatNumber, formatTimestamp, formatDuration } from '../services/formatters';
 import { useMiddlewareEnabled } from '../services/useMiddlewareEnabled';
 
-const HITL_MODULES = [
-  { value: 'FileSystem', label: 'FileSystem' },
-  { value: 'Shell', label: 'Shell' },
-  { value: 'Browser', label: 'Browser' },
-  { value: 'GoogleDrive', label: 'Google Drive' },
-  { value: 'Gmail', label: 'Gmail' },
-  { value: 'Memory', label: 'Memory' },
-  { value: 'Process', label: 'Process' },
-];
-
 const hitlFields: FormField[] = [
+  {
+    key: 'defaultAction',
+    label: 'Default Action',
+    description: 'Action applied to tools/methods not explicitly covered by a rule.',
+    type: 'dropdown',
+    options: [
+      { value: 'ALLOW', label: 'ALLOW — Pass through without prompting' },
+      { value: 'ASK', label: 'ASK — Prompt the user for approval' },
+      { value: 'DENY', label: 'DENY — Block automatically' },
+    ],
+  },
   {
     key: 'securityLevel',
     label: 'Security Policy Preset',
@@ -34,13 +41,6 @@ const hitlFields: FormField[] = [
       { value: 'STRICT', label: 'Strict — Approve most operations' },
       { value: 'CUSTOM', label: 'Custom — Manual threshold tuning' },
     ],
-  },
-  {
-    key: '_modules',
-    label: 'Protected Modules',
-    description: 'Select which OpenClaw tool modules require HITL approval.',
-    type: 'checkbox-group',
-    options: HITL_MODULES,
   },
   {
     key: 'forceAskIrreversibilityThreshold',
@@ -120,6 +120,13 @@ export function HitlPage(_props: { path?: string }) {
   const [decisions, setDecisions] = useState<unknown[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<'overview' | 'policy' | 'logs'>('overview');
+  const [resettingStats, setResettingStats] = useState(false);
+  const [resettingPolicy, setResettingPolicy] = useState(false);
+  const [auditLimit, setAuditLimit] = useState(100);
+  const [auditModule, setAuditModule] = useState('');
+  const [auditDecision, setAuditDecision] = useState('');
+  const [auditPath, setAuditPath] = useState('');
+  const [auditLoading, setAuditLoading] = useState(false);
   const enabled = useMiddlewareEnabled('hitl');
 
   useEffect(() => {
@@ -127,17 +134,46 @@ export function HitlPage(_props: { path?: string }) {
       fetchHitlStats().then(setStats).catch(() => {}),
       fetchHitlPolicy().then(setPolicy).catch(() => {}),
       fetchHitlDecisions(200).then(setDecisions).catch(() => {}),
+      fetchHitlAuditPath().then((r) => setAuditPath(r.path)).catch(() => {}),
     ]).finally(() => setLoading(false));
   }, []);
 
-  // Marshal policy → flat form values
-  const modules = policy.modules as Record<string, unknown> | undefined;
-  const activeModules = modules ? Object.keys(modules) : [];
-
-  const formValues: Record<string, unknown> = {
-    ...policy,
-    _modules: activeModules,
+  const reloadAudit = async () => {
+    setAuditLoading(true);
+    try {
+      const fresh = await fetchHitlDecisions(auditLimit);
+      setDecisions(fresh);
+    } catch {
+      /* ignore */
+    } finally {
+      setAuditLoading(false);
+    }
   };
+
+  const filteredDecisions = (decisions as Record<string, unknown>[]).filter((d) => {
+    if (auditModule && (d.module as string)?.toLowerCase() !== auditModule.toLowerCase()) {
+      return false;
+    }
+    if (auditDecision && (d.decision as string) !== auditDecision) {
+      return false;
+    }
+    return true;
+  });
+
+  const availableModules = Array.from(
+    new Set(
+      (decisions as Record<string, unknown>[])
+        .map((d) => d.module as string)
+        .filter(Boolean)
+    )
+  ).sort();
+
+  const moduleMap = (policy.modules || {}) as Record<
+    string,
+    Record<string, { action: 'ALLOW' | 'ASK' | 'DENY'; description?: string; allowPaths?: string[]; denyPaths?: string[] }>
+  >;
+
+  const formValues: Record<string, unknown> = { ...policy };
 
   const decisionColumns = [
     {
@@ -200,6 +236,10 @@ export function HitlPage(_props: { path?: string }) {
               value={formatNumber((stats.totalCalls as number) || 0)}
             />
             <StatCard
+              label="Allowed"
+              value={formatNumber((stats.allowed as number) || 0)}
+            />
+            <StatCard
               label="Approved"
               value={formatNumber((stats.approved as number) || 0)}
             />
@@ -211,7 +251,50 @@ export function HitlPage(_props: { path?: string }) {
               label="Blocked"
               value={formatNumber((stats.blocked as number) || 0)}
             />
+            <StatCard
+              label="Avg Decision Time"
+              value={
+                typeof stats.avgDecisionTime === 'number'
+                  ? formatDuration(stats.avgDecisionTime as number)
+                  : '—'
+              }
+            />
+            <StatCard
+              label="Last Reset"
+              value={
+                stats.lastReset ? formatTimestamp(stats.lastReset as string) : '—'
+              }
+            />
           </div>
+
+          {/* Reset stats control */}
+          {enabled !== false && (
+            <div class="flex-between mb-16">
+              <div style={{ color: 'var(--sai-text-muted)', fontSize: '13px' }}>
+                Clear counters and start a fresh measurement window.
+              </div>
+              <GradientButton
+                secondary
+                disabled={resettingStats}
+                onClick={async () => {
+                  if (!window.confirm('Reset all HITL statistics? This cannot be undone.')) return;
+                  setResettingStats(true);
+                  try {
+                    await resetHitlStats();
+                    const fresh = await fetchHitlStats();
+                    setStats(fresh);
+                    showToast('Statistics reset', 'success');
+                  } catch {
+                    showToast('Failed to reset statistics', 'error');
+                  } finally {
+                    setResettingStats(false);
+                  }
+                }}
+              >
+                {resettingStats ? 'Resetting...' : 'Reset Statistics'}
+              </GradientButton>
+            </div>
+          )}
 
           {/* Decision log table */}
           <div class="page-section">
@@ -226,37 +309,162 @@ export function HitlPage(_props: { path?: string }) {
       )}
 
       {!loading && tab === 'policy' && (
-        <div class="page-section">
-          <ConfigForm
-            fields={hitlFields}
-            values={formValues}
-            readOnly={enabled === false}
-            onSave={async (val) => {
-              // Unmarshal: convert _modules array back to modules object
-              const selectedModules = (val._modules as string[]) || [];
-              const existingModules = (policy.modules || {}) as Record<string, unknown>;
-              const newModules: Record<string, unknown> = {};
-              for (const mod of selectedModules) {
-                newModules[mod] = existingModules[mod] || {};
-              }
+        <>
+          <div class="page-section">
+            <div class="page-section-title">Presets &amp; Thresholds</div>
+            <ConfigForm
+              fields={hitlFields}
+              values={formValues}
+              readOnly={enabled === false}
+              onSave={async (val) => {
+                const updated = { ...policy, ...val };
+                await updateHitlPolicy(updated);
+                setPolicy(updated);
+              }}
+            />
+          </div>
 
-              const { _modules: _, ...rest } = val;
-              const updated = { ...rest, modules: newModules };
-              await updateHitlPolicy(updated);
-              setPolicy(updated);
-            }}
-          />
-        </div>
+          <div class="page-section">
+            <div class="page-section-title">Module Rules</div>
+            <div style={{ color: 'var(--sai-text-muted)', fontSize: '13px', marginBottom: '12px' }}>
+              Per-module / per-method overrides. Action = ALLOW · ASK · DENY.
+              Path globs narrow the scope — if <code>allow paths</code> is set, only matching targets pass; <code>deny paths</code> blocks regardless of allow rules.
+            </div>
+            <HitlRuleEditor
+              modules={moduleMap}
+              readOnly={enabled === false}
+              onSave={async (newModules) => {
+                const updated = { ...policy, modules: newModules };
+                await updateHitlPolicy(updated);
+                setPolicy(updated);
+              }}
+            />
+          </div>
+
+          {enabled !== false && (
+            <div class="page-section">
+              <div class="page-section-title">Danger Zone</div>
+              <div class="flex-between">
+                <div style={{ color: 'var(--sai-text-muted)', fontSize: '13px', maxWidth: '70%' }}>
+                  Revert the policy to built-in defaults (BALANCED preset, default module rules).
+                  Custom rules and thresholds will be lost.
+                </div>
+                <GradientButton
+                  secondary
+                  disabled={resettingPolicy}
+                  onClick={async () => {
+                    if (!window.confirm('Reset HITL policy to defaults? Custom rules will be lost.')) return;
+                    setResettingPolicy(true);
+                    try {
+                      await resetHitlPolicy();
+                      const fresh = await fetchHitlPolicy();
+                      setPolicy(fresh);
+                      showToast('Policy reset to defaults', 'success');
+                    } catch {
+                      showToast('Failed to reset policy', 'error');
+                    } finally {
+                      setResettingPolicy(false);
+                    }
+                  }}
+                >
+                  {resettingPolicy ? 'Resetting...' : 'Reset Policy to Defaults'}
+                </GradientButton>
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       {!loading && tab === 'logs' && (
-        <div class="page-section">
-          <LogViewer
-            source="hitl"
-            initialRecords={decisions as Record<string, unknown>[]}
-            title="HITL Decision Log"
-          />
-        </div>
+        <>
+          <div class="page-section">
+            <div class="page-section-title">Audit Snapshot</div>
+            <div
+              style={{
+                display: 'flex',
+                gap: '12px',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                marginBottom: '12px',
+              }}
+            >
+              <label style={{ fontSize: '12px', display: 'flex', gap: '6px', alignItems: 'center' }}>
+                Lines
+                <select
+                  class="form-select"
+                  value={String(auditLimit)}
+                  onChange={(e) => setAuditLimit(Number((e.target as HTMLSelectElement).value))}
+                >
+                  {[50, 100, 200, 500, 1000].map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label style={{ fontSize: '12px', display: 'flex', gap: '6px', alignItems: 'center' }}>
+                Module
+                <select
+                  class="form-select"
+                  value={auditModule}
+                  onChange={(e) => setAuditModule((e.target as HTMLSelectElement).value)}
+                >
+                  <option value="">All</option>
+                  {availableModules.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label style={{ fontSize: '12px', display: 'flex', gap: '6px', alignItems: 'center' }}>
+                Decision
+                <select
+                  class="form-select"
+                  value={auditDecision}
+                  onChange={(e) => setAuditDecision((e.target as HTMLSelectElement).value)}
+                >
+                  <option value="">All</option>
+                  <option value="ALLOWED">ALLOWED</option>
+                  <option value="APPROVED">APPROVED</option>
+                  <option value="REJECTED">REJECTED</option>
+                  <option value="BLOCKED">BLOCKED</option>
+                </select>
+              </label>
+
+              <GradientButton secondary onClick={reloadAudit} disabled={auditLoading}>
+                {auditLoading ? 'Loading...' : 'Reload'}
+              </GradientButton>
+
+              <span style={{ fontSize: '12px', color: 'var(--sai-text-muted)', marginLeft: 'auto' }}>
+                Showing {filteredDecisions.length} of {decisions.length}
+              </span>
+            </div>
+
+            <DataTable
+              columns={decisionColumns}
+              data={[...filteredDecisions].reverse()}
+              emptyText="No decisions match the current filters"
+            />
+
+            {auditPath && (
+              <div style={{ fontSize: '12px', color: 'var(--sai-text-muted)', marginTop: '12px' }}>
+                Audit log: <code>{auditPath}</code>
+              </div>
+            )}
+          </div>
+
+          <div class="page-section">
+            <div class="page-section-title">Live Stream</div>
+            <LogViewer
+              source="hitl"
+              initialRecords={decisions as Record<string, unknown>[]}
+              title="HITL Decision Log"
+            />
+          </div>
+        </>
       )}
     </div>
   );

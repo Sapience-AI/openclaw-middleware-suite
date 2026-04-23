@@ -49,6 +49,31 @@ export const updateHitlPolicy = (policy: Record<string, unknown>) =>
 export const fetchHitlDecisions = (limit = 100) =>
   request<unknown[]>(`/api/hitl/decisions?limit=${limit}`);
 
+export const fetchHitlAuditPath = () => request<{ path: string }>('/api/hitl/audit-path');
+
+export const fetchHitlPolicyPath = () => request<{ path: string }>('/api/hitl/policy-path');
+
+export interface HitlPresetsResponse {
+  presets: Record<
+    string,
+    {
+      name: string;
+      description: string;
+      policy: Record<string, Record<string, { action: string; description?: string }>>;
+    }
+  >;
+  defaultModules: string[];
+  defaultThresholds: Record<string, number | boolean>;
+}
+
+export const fetchHitlPresets = () => request<HitlPresetsResponse>('/api/hitl/presets');
+
+export const resetHitlStats = () =>
+  request<{ ok: boolean }>('/api/hitl/stats/reset', { method: 'POST' });
+
+export const resetHitlPolicy = () =>
+  request<{ ok: boolean }>('/api/hitl/policy/reset', { method: 'POST' });
+
 // ── Model Routing ──────────────────────────────────────────────────────────
 
 export const fetchRoutingStats = () => request<Record<string, unknown>>('/api/routing/stats');
@@ -101,6 +126,15 @@ export const updateGuardrailConfig = (config: Record<string, unknown>) =>
 export const fetchGuardrailAudit = (limit = 100) =>
   request<unknown[]>(`/api/guardrail/audit?limit=${limit}`);
 
+export const fetchGuardrailConfigPath = () =>
+  request<{ path: string }>('/api/guardrail/config-path');
+
+export const fetchGuardrailDefaults = () =>
+  request<Record<string, unknown>>('/api/guardrail/defaults');
+
+export const resetGuardrailConfig = () =>
+  request<{ ok: boolean }>('/api/guardrail/reset', { method: 'POST' });
+
 // ── PII Sanitizer ──────────────────────────────────────────────────────────
 
 export const fetchPiiPolicy = () => request<Record<string, unknown>>('/api/pii/policy');
@@ -113,6 +147,12 @@ export const updatePiiPolicy = (policy: Record<string, unknown>) =>
 
 export const fetchPiiAudit = (limit = 100) => request<unknown[]>(`/api/pii/audit?limit=${limit}`);
 
+export const fetchPiiPolicyPath = () => request<{ path: string }>('/api/pii/policy-path');
+
+export const fetchPiiDefaults = () => request<Record<string, unknown>>('/api/pii/defaults');
+
+export const resetPiiPolicy = () => request<{ ok: boolean }>('/api/pii/reset', { method: 'POST' });
+
 // ── Tool Call Limit ────────────────────────────────────────────────────────
 
 export const fetchLimitsPolicy = () => request<Record<string, unknown>>('/api/limits/policy');
@@ -124,6 +164,19 @@ export const updateLimitsPolicy = (policy: Record<string, unknown>) =>
   });
 
 export const fetchLimitsSessions = () => request<Record<string, unknown>>('/api/limits/sessions');
+
+export const fetchLimitsPolicyPath = () => request<{ path: string }>('/api/limits/policy-path');
+
+export const fetchLimitsDefaults = () => request<Record<string, unknown>>('/api/limits/defaults');
+
+export const resetLimitsPolicy = () =>
+  request<{ ok: boolean }>('/api/limits/policy/reset', { method: 'POST' });
+
+export const resetLimitsTrackers = (scope: 'all' | 'session' | 'request' = 'all') =>
+  request<{ ok: boolean; resetAt: string; scope: string }>('/api/limits/trackers/reset', {
+    method: 'POST',
+    body: JSON.stringify({ scope }),
+  });
 
 // ── Full config ────────────────────────────────────────────────────────────
 
