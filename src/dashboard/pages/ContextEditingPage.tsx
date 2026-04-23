@@ -620,9 +620,9 @@ function EventDetails(props: { event: AuditRecord }) {
         </DetailSection>
       )}
 
-      {/* ICC instruction (the summary the agent receives) */}
+      {/* Compaction summary (the summary the agent receives) */}
       {e.iccInstruction && (
-        <DetailSection title="ICC Instruction">
+        <DetailSection title="Compaction Summary">
           <pre style={preStyle}>{e.iccInstruction}</pre>
         </DetailSection>
       )}

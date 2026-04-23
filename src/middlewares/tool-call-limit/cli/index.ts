@@ -16,6 +16,7 @@ import { setLimitCommand } from './set.js';
 import { setGlobalLimitCommand } from './set-global.js';
 import { unsetLimitCommand } from './unset.js';
 import { showLimitCommand } from './show.js';
+import { resetLimitCommand } from './reset.js';
 
 export function registerToolCallLimitCommands(program: Command): void {
   const limits = program
@@ -64,6 +65,16 @@ export function registerToolCallLimitCommands(program: Command): void {
     .description('Remove a per-tool rule; the global ceiling will apply')
     .option('--json', 'Output machine-readable JSON')
     .action(unsetLimitCommand);
+
+  limits
+    .command('reset')
+    .description(
+      'Reset tool call limit trackers (clears on-disk files and in-memory counters on the running gateway)'
+    )
+    .option('-s, --session', 'Reset only session-scope counters')
+    .option('-q, --request', 'Reset only request-scope counters')
+    .option('--json', 'Output machine-readable JSON')
+    .action(resetLimitCommand);
 
   limits
     .command('show [tool]')

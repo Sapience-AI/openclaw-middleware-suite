@@ -389,19 +389,33 @@ export function createWriteScannerHook(): (
       }
 
       // ── Handle: Main guardrail rule scan (regex/prefix/heuristic) ──
+      //
+      // Severity-driven posture (overrides per-rule `action` for the write
+      // path so every HIGH leak gets sanitized and every CRITICAL leak blocks
+      // the whole turn, regardless of how the rule was authored):
+      //   CRITICAL → block the whole message (refusal placeholder)
+      //   HIGH     → redact matched content inline, keep rest of the message
+      //   MEDIUM/LOW → audit-only, pass through unchanged
       if (detections.length === 0) return undefined;
 
-      const blockDetections = detections.filter((d) => d.action === 'BLOCK');
-      const warnDetections = detections.filter((d) => d.action === 'WARN');
-      const hasBlock = blockDetections.length > 0;
-      const hasWarn = warnDetections.length > 0;
-
-      if (!hasBlock && !hasWarn) return undefined;
+      const criticalDetections = detections.filter((d) => d.severity === 'CRITICAL');
+      const highDetections = detections.filter((d) => d.severity === 'HIGH');
+      const hasCritical = criticalDetections.length > 0;
+      const hasHigh = highDetections.length > 0;
 
       const severities = [...new Set(detections.map((d) => d.severity))].join('/');
       const topRules = detections.slice(0, 5).map((d) => `${d.category}:${d.ruleName}`);
+
+      if (!hasCritical && !hasHigh) {
+        logger.info(
+          `[guardrail-write] [source:rule-scanner] AUDIT #${scanCount} | severity=[${severities}] | detections=${detections.length}`,
+          { detections: topRules, sessionKey: ctx.sessionKey }
+        );
+        return undefined;
+      }
+
       const isDryRun = config.dryRunMode;
-      const actionLabel = isDryRun ? 'DRY-RUN' : hasBlock ? 'REDACT' : 'WARN';
+      const actionLabel = isDryRun ? 'DRY-RUN' : hasCritical ? 'BLOCK' : 'REDACT';
 
       logger.info(
         `[guardrail-write] [source:rule-scanner] ${actionLabel} #${scanCount} | severity=[${severities}] | detections=${detections.length}`,
@@ -421,10 +435,10 @@ export function createWriteScannerHook(): (
         module: 'before_message_write',
         method: 'write',
         args: [{ contentLength: content.length }],
-        decision: hasBlock && !isDryRun ? 'BLOCKED' : 'ALLOWED',
+        decision: hasCritical && !isDryRun ? 'BLOCKED' : 'ALLOWED',
         decisionTime: 0,
         reason: `guardrail-write: ${reason}`,
-        eventType: hasBlock ? 'tool_blocked' : 'destructive_detected',
+        eventType: hasCritical ? 'tool_blocked' : 'destructive_detected',
         tool: 'message_write',
         severity: detections[0]?.severity as 'LOW' | 'HIGH' | 'CATASTROPHIC' | undefined,
         agentId: ctx.agentId,
@@ -433,31 +447,35 @@ export function createWriteScannerHook(): (
 
       if (isDryRun) return undefined;
 
-      if (hasBlock) {
-        for (const det of blockDetections) {
+      if (hasCritical) {
+        for (const det of criticalDetections) {
           if (det.matchedContent) {
             registerCanary(det.matchedContent, det.category);
           }
         }
-
-        const warning = `[GUARDRAIL:rule-scanner] Content redacted (${detections.length} detection(s): ${topRules.slice(0, 3).join(', ')})`;
-        const redacted = redactContent(fullContent, blockDetections);
-        logger.info(`[guardrail-write] [source:rule-scanner] Returning redacted content`);
-        return { message: replaceMessageContent(event.message, `${warning}\n\n${redacted}`) };
+        const blockedRules = criticalDetections
+          .slice(0, 3)
+          .map((d) => `${d.category}:${d.ruleName}`)
+          .join(', ');
+        const blockedText = `[GUARDRAIL:rule-scanner] Content blocked — ${criticalDetections.length} CRITICAL detection(s): ${blockedRules}`;
+        logger.info(`[guardrail-write] [source:rule-scanner] Returning blocked placeholder`);
+        return { message: replaceMessageContent(event.message, blockedText) };
       }
 
-      if (hasWarn) {
-        for (const det of warnDetections) {
-          if (det.matchedContent) {
-            registerCanary(det.matchedContent, det.category);
-          }
+      // hasHigh — redact inline, deliver sanitized body
+      for (const det of highDetections) {
+        if (det.matchedContent) {
+          registerCanary(det.matchedContent, det.category);
         }
-
-        const warning = `[GUARDRAIL:rule-scanner] Warning (${detections.length} detection(s): ${topRules.slice(0, 3).join(', ')})`;
-        return { message: replaceMessageContent(event.message, `${warning}\n\n${fullContent}`) };
       }
-
-      return undefined;
+      const redactedRules = highDetections
+        .slice(0, 3)
+        .map((d) => `${d.category}:${d.ruleName}`)
+        .join(', ');
+      const warning = `[GUARDRAIL:rule-scanner] Redacted ${highDetections.length} HIGH detection(s): ${redactedRules}`;
+      const redacted = redactContent(fullContent, highDetections);
+      logger.info(`[guardrail-write] [source:rule-scanner] Returning redacted content`);
+      return { message: replaceMessageContent(event.message, `${warning}\n\n${redacted}`) };
     } catch (err) {
       logger.warn('[guardrail-write] Scan error — fail-open', { error: err });
       return undefined;

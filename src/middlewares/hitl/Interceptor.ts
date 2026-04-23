@@ -186,9 +186,20 @@ export class Interceptor {
     );
 
     if (!allowed) {
-      // A sessionKey indicates a remote/web session — always use channel-mode error
-      // formatting so the agent sees approval instructions in the chat UI.
+      // A sessionKey indicates a remote/web session — use channel-mode error
+      // formatting so the agent sees the right signal in the chat UI.
       const isChannelMode = !!sessionKey;
+
+      // DENY is a hard block. Never emit the APPROVAL_REQUIRED template
+      // (which would make the agent ask the user for /approve and wait) —
+      // there is no approval path for a DENY decision.
+      if (effectiveRule.action === 'DENY') {
+        throw new Error(
+          `[SapienceMiddleware:BLOCKED_BY_POLICY] ${moduleName}.${methodName}() is denied by security policy. ` +
+            `This action cannot be approved by the user. Do NOT ask the user for /approve. ` +
+            `Stop attempting this tool and tell the user it was blocked by policy.`
+        );
+      }
 
       if (isChannelMode) {
         const instructions = this.buildChannelInstructions(normalizedIntervention);
@@ -382,11 +393,15 @@ export class Interceptor {
         const approved = await this.arbitrator.judge(context);
         const decisionTime = Date.now() - startTime;
 
-        if (!approved && process.stdin.isTTY) {
-          // TTY: record denial for cooldown escalation.
-          trustRateLimiter.recordDenial(sessionKey || 'tty');
+        if (!approved && process.stdin.isTTY && !sessionKey) {
+          // Pure TTY path (no channel session): record denial for cooldown.
+          // NOTE: we explicitly skip when a sessionKey is present — channel mode
+          // returns `false` as a "waiting for /approve" stall signal, not a
+          // denial, and real denials are recorded by the `/deny` command handler.
+          trustRateLimiter.recordDenial('tty');
         }
-        // Channel mode: onBlockCallback is called inside judgeChannel() before stalling.
+        // Channel mode: denials are recorded by /deny handler; pending approvals
+        // must NOT increment the counter.
 
         await this.logDecision({
           timestamp: new Date().toISOString(),

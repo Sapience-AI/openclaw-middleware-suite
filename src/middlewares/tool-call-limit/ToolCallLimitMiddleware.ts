@@ -27,6 +27,36 @@ export class ToolCallLimitMiddleware implements Middleware {
   private mutex: Promise<any> = Promise.resolve();
 
   /**
+   * Tracks the last observed `resetAt` from the policy. When it changes,
+   * the CLI has issued `sai limits reset` and we must clear in-memory
+   * tracker Maps so the freshly-wiped on-disk state isn't overwritten on
+   * the next tool call.
+   */
+  private lastSeenResetAt: string | null = null;
+
+  /**
+   * Clears in-memory tracker state based on the scope of the reset.
+   * Also flushes the (now-empty) state to disk so persisted trackers match.
+   */
+  private async applyReset(scope: 'all' | 'session' | 'request' | undefined): Promise<void> {
+    const effectiveScope = scope || 'all';
+    if (effectiveScope === 'all' || effectiveScope === 'session') {
+      this.trackers.clear();
+      this.lastActivity.clear();
+      this.virtualIds.clear();
+    }
+    if (effectiveScope === 'all' || effectiveScope === 'request') {
+      this.requestTrackers.clear();
+    }
+    try {
+      await TrackerStore.save(this.trackers, this.requestTrackers);
+    } catch (err) {
+      logger.error('Failed to persist empty tracker state after reset', { error: err });
+    }
+    logger.info(`Tool call limit trackers cleared in-memory (scope=${effectiveScope})`);
+  }
+
+  /**
    * Initializes the middleware by loading persisted state from TrackerStore.
    */
   public async initialize(): Promise<void> {
@@ -116,6 +146,26 @@ export class ToolCallLimitMiddleware implements Middleware {
   ): Promise<EnforcementStatus> {
     return (this.mutex = this.mutex.then(async () => {
       await this.initialize();
+
+      // Detect `sai limits reset` — the CLI bumps `resetAt` on the policy.
+      // When it changes vs. what we've seen, wipe in-memory trackers so
+      // the stale in-memory state doesn't resurrect deleted on-disk files.
+      try {
+        const currentPolicy = LimitPolicyStore.getCached();
+        const currentResetAt = currentPolicy.resetAt || null;
+        if (currentResetAt && currentResetAt !== this.lastSeenResetAt) {
+          // Skip the very first observation after boot (initialize already
+          // loaded whatever was on disk; the user hasn't asked for a reset).
+          if (this.lastSeenResetAt !== null) {
+            await this.applyReset(currentPolicy.resetScope);
+          }
+          this.lastSeenResetAt = currentResetAt;
+        } else if (!this.lastSeenResetAt && currentResetAt) {
+          this.lastSeenResetAt = currentResetAt;
+        }
+      } catch (err) {
+        logger.error('Failed to check reset marker', { error: err });
+      }
 
       const effectiveSessionKey = sessionKey || (agentId ? `agent:${agentId}` : 'LOCAL_SESSION');
       const sessionTrackers = this.getOrCreateTrackers(this.trackers, effectiveSessionKey);

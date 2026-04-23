@@ -45,7 +45,6 @@ import { outputStatusCommand, outputToggleCommand } from './output.js';
 export function registerGuardrailCommands(program: Command): void {
   const guardrail = program
     .command('guardrail')
-    .alias('guard')
     .description(
       'Manage the Input Guardrail middleware (prompt injection, PII, credential scanning)'
     );
