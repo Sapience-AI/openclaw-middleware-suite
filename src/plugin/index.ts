@@ -266,7 +266,7 @@ export default {
       // =================================================================
       {
         const mrPluginCfg = (pluginConfig['model-routing'] as Record<string, unknown>) || {};
-        const serverPort = typeof mrPluginCfg.port === 'number' ? mrPluginCfg.port : 8402;
+        const serverPort = typeof mrPluginCfg.port === 'number' ? mrPluginCfg.port : 9000;
         getSuiteServer(serverPort)
           .start()
           .catch((err) => {
@@ -414,7 +414,7 @@ export default {
         if (!_modelRouting) {
           _modelRouting = new ModelRoutingMiddleware();
           const mrPluginConfig = (pluginConfig['model-routing'] as Record<string, unknown>) || {};
-          const routerPort = typeof mrPluginConfig.port === 'number' ? mrPluginConfig.port : 8402;
+          const routerPort = typeof mrPluginConfig.port === 'number' ? mrPluginConfig.port : 9000;
 
           // ── SYNC: Register as an OpenClaw provider ──────────────────────
           const modelList = buildRouterModelList();

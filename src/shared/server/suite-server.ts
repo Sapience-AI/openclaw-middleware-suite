@@ -24,7 +24,7 @@ export class SuiteServer {
   private _port: number;
   private _proxyHandler: ProxyRouteHandler | null = null;
 
-  constructor(port = 8402) {
+  constructor(port = 9000) {
     this._port = port;
   }
 
@@ -154,7 +154,7 @@ export class SuiteServer {
 }
 
 /** Get or create the singleton suite server. */
-export function getSuiteServer(port = 8402): SuiteServer {
+export function getSuiteServer(port = 9000): SuiteServer {
   if (!_instance) {
     _instance = new SuiteServer(port);
   }

@@ -81,7 +81,7 @@
   "models": {
     "providers": {
       "sapience-router": {
-        "baseUrl": "http://127.0.0.1:8402/v1",
+        "baseUrl": "http://127.0.0.1:9000/v1",
         "api": "openai-completions",
         "apiKey": "sapience-proxy-handles-routing",
         "models": [

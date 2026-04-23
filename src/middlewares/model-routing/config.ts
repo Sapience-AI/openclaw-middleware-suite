@@ -1514,7 +1514,7 @@ export const DEFAULT_DEDUP_CONFIG: DedupConfig = {
 
 export const DEFAULT_MODEL_ROUTING_CONFIG: ModelRoutingConfig = {
   enabled: true,
-  port: 8402,
+  port: 9000,
   targetBaseUrl: getOpenAIBaseUrl() || 'https://api.openai.com',
   targetApiKey: getOpenAIApiKey() || '',
 

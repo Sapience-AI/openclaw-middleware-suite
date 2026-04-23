@@ -597,7 +597,7 @@ export async function initModelRoutingMiddleware(
   // ── Stage provider config + allowlist, then flush to openclaw.json ───────
   // Changes are staged in sapience-ai-suite.json first, then flushed to
   // openclaw.json in a single write at the end of init.
-  const routerPort = 8402;
+  const routerPort = 9000;
   const modelList = buildRouterModelList();
   await injectModelsConfig(routerPort, modelList);
   injectAuthProfile();

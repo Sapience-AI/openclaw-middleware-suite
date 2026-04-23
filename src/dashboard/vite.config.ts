@@ -22,8 +22,8 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      '/api': 'http://127.0.0.1:8402',
-      '/sse': 'http://127.0.0.1:8402',
+      '/api': 'http://127.0.0.1:9000',
+      '/sse': 'http://127.0.0.1:9000',
     },
   },
 });

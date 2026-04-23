@@ -91,7 +91,7 @@ openclaw plugins install --link .
 # Interactive wizard — walks you through security level, modules, and policies
 sai init
 
-# Start the gateway — dashboard served at http://localhost:8402/dashboard
+# Start the gateway — dashboard served at http://localhost:9000/dashboard
 openclaw gateway start
 ```
 
