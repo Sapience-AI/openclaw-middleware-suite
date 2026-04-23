@@ -32,6 +32,7 @@
 
 import path from 'path';
 import os from 'os';
+import { fileURLToPath } from 'url';
 import { getOpenclawHome } from '../env.js';
 
 // ---------------------------------------------------------------------------
@@ -131,7 +132,7 @@ export const TOOL_CALL_LIMIT_LAST_REQ_FILE = path.join(TOOL_CALL_LIMIT_DIR, 'las
 
 /** Directory containing the built dashboard static assets (dist/dashboard/). */
 export const DASHBOARD_DIST_DIR = path.resolve(
-  path.dirname(new URL(import.meta.url).pathname.replace(/^\/([a-zA-Z]:)/, '$1')),
+  path.dirname(fileURLToPath(import.meta.url)),
   '..',
   '..',
   'dashboard'
