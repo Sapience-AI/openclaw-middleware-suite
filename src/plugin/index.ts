@@ -649,10 +649,19 @@ export default {
                   const mod = await import('../middlewares/tool-call-limit/ToolCallLimitHook.js');
                   _executeLimitCheck = mod.executeLimitCheck;
                 }
+                const toolNameForLimit = event.toolName || event.tool || '';
+                // Resolve flat OpenClaw tool names (e.g. "write") to module/method
+                // using the same mapping HITL uses, with a dot-split fallback.
+                const { getToolMapping } = await import('../middlewares/hitl/tool-interceptor.js');
+                const toolMap = getToolMapping();
+                const mapped = toolMap[toolNameForLimit.toLowerCase()];
+                const [modFromName = '', methodFromName = ''] = toolNameForLimit.split('.');
+                const resolvedModule = event.moduleName || mapped?.module || modFromName;
+                const resolvedMethod = event.methodName || mapped?.method || methodFromName;
                 const limitResult = await _executeLimitCheck(
-                  event.toolName || event.tool || '',
-                  event.moduleName || '',
-                  event.methodName || '',
+                  toolNameForLimit,
+                  resolvedModule,
+                  resolvedMethod,
                   event.params || event.input || {},
                   ctx?.sessionKey,
                   ctx?.requestId

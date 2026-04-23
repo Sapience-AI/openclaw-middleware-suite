@@ -20,6 +20,7 @@
 
 import { createRequire } from 'module';
 import { pathToFileURL } from 'url';
+import { createHash } from 'crypto';
 import { Middleware, MiddlewareContext, MiddlewareResult } from '../../types.js';
 import { logger } from '../../shared/Logger.js';
 import { getOpenclawHome, getOpenclawDir } from '../../shared/env.js';
@@ -945,6 +946,12 @@ export class ContextEditingMiddleware implements Middleware {
       // no keepRecentTokens / findCutPoint / safeguard chain needed.
       const summary = this.buildICCSection(iccResult);
 
+      // The rendered summary is the single source of truth — mirror it into
+      // the result so the audit log, CLI, and dashboard all show exactly
+      // what the agent saw after compaction.
+      iccResult.iccInstruction = summary;
+      iccResult.instructionHash = createHash('sha256').update(summary).digest('hex').slice(0, 16);
+
       diag('requestCompaction: ICC summary built', {
         sessionKey,
         summaryLength: summary.length,
@@ -1225,6 +1232,9 @@ export class ContextEditingMiddleware implements Middleware {
   private buildICCSection(result: CompactionResult): string {
     const lines: string[] = [];
 
+    lines.push('# Compaction Summary (from previous conversations)');
+    lines.push('');
+
     // Custom-prompt mode: render whatever sections the user's schema produced.
     if (result.dynamicSections) {
       for (const [key, items] of Object.entries(result.dynamicSections)) {
@@ -1241,7 +1251,7 @@ export class ContextEditingMiddleware implements Middleware {
 
     // Priority preservation
     if (result.prioritySegments.length > 0) {
-      lines.push('### Priority Preservation');
+      lines.push('### Goal/Priority Segments');
       for (const segment of result.prioritySegments) {
         lines.push(`- ${segment}`);
       }

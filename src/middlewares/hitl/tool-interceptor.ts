@@ -3,6 +3,8 @@
  * Hook-based interception for OpenClaw's before_tool_call event
  */
 
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { Interceptor } from './Interceptor.js';
 import { logger } from '../../shared/Logger.js';
 import { detectBrowserChallenge } from './scoring/BrowserChallengeDetector.js';
@@ -264,6 +266,62 @@ function detectGmailApiMethod(url: string): string {
   return 'list'; // Default fallback for search/get
 }
 
+/**
+ * Scan arbitrary text (file content, script body) for Gmail/Drive API signatures.
+ * Returns the resolved module/method, or undefined if no signature is found.
+ *
+ * Why: agents can bypass a DENY on gmail.delete / drive.delete by staging the
+ * API call inside a script file (FileSystem.write) and running it via
+ * Shell.exec. Neither the write nor the exec command string itself contains
+ * the Gmail URL — it lives in the file contents. Scanning content closes
+ * this gap without changing Shell.exec's ALLOW policy.
+ */
+function detectApiSignatureInContent(
+  content: string
+): { module: string; method: string } | undefined {
+  const lower = content.toLowerCase();
+  if (lower.includes('gateway.maton.ai/google-mail')) {
+    return { module: 'Gmail', method: detectGmailApiMethod(lower) };
+  }
+  if (lower.includes('gateway.maton.ai/google-drive')) {
+    return { module: 'GoogleDrive', method: detectDriveApiMethod(lower) };
+  }
+  // Direct Gmail/Drive REST API calls (not via Maton gateway)
+  if (/gmail\.googleapis\.com|www\.googleapis\.com\/gmail/i.test(content)) {
+    return { module: 'Gmail', method: detectGmailApiMethod(lower) };
+  }
+  if (/www\.googleapis\.com\/drive|drive\.googleapis\.com/i.test(content)) {
+    return { module: 'GoogleDrive', method: detectDriveApiMethod(lower) };
+  }
+  return undefined;
+}
+
+/**
+ * If a shell command runs a script file (python X.py, node X.js, bash X.sh, …),
+ * extract the script path and scan its contents for Gmail/Drive API calls.
+ * Capped at 256 KB to avoid reading pathological files.
+ */
+function detectApiSignatureInShellScript(
+  command: string
+): { module: string; method: string } | undefined {
+  const MAX_BYTES = 256 * 1024;
+  const match =
+    /\b(?:python3?|node|deno|bun|ts-node|bash|sh|zsh|pwsh|powershell)\b[^\n]*?\s((?:"[^"]+"|'[^']+'|[^\s"']+\.(?:py|js|mjs|cjs|ts|sh|bash|ps1)))/i.exec(
+      command
+    );
+  if (!match) return undefined;
+  const scriptPath = match[1].replace(/^["']|["']$/g, '');
+  try {
+    if (!path.isAbsolute(scriptPath)) return undefined;
+    const stat = fs.statSync(scriptPath);
+    if (!stat.isFile() || stat.size > MAX_BYTES) return undefined;
+    const content = fs.readFileSync(scriptPath, 'utf8');
+    return detectApiSignatureInContent(content);
+  } catch {
+    return undefined;
+  }
+}
+
 export interface BeforeToolCallEvent {
   toolName: string;
   params: Record<string, unknown>;
@@ -321,6 +379,39 @@ export function createToolCallHook(
           const gmailShellMethod = detectGmailShellMethod(command);
           if (gmailShellMethod) {
             mapping = { module: 'Gmail', method: gmailShellMethod };
+          } else {
+            // Staged-script bypass: command runs a script file whose contents
+            // perform a Gmail/Drive API call. Resolve the script and scan it.
+            const scriptMapping = detectApiSignatureInShellScript(command);
+            if (scriptMapping) {
+              mapping = scriptMapping;
+              logger.info('Sapience MW: shell script routed by content signature', {
+                toolName,
+                moduleName: scriptMapping.module,
+                methodName: scriptMapping.method,
+              });
+            }
+          }
+        }
+      }
+
+      // Heuristic: FileSystem.write/edit creating a script that performs a
+      // Gmail/Drive API call. Route the write itself to the corresponding
+      // security module so a DENY on gmail.delete blocks the staging step.
+      if (
+        mapping?.module === 'FileSystem' &&
+        (mapping.method === 'write' || lowerToolName === 'write' || lowerToolName === 'edit')
+      ) {
+        const content = (params.content || params.text || params.new_string || '').toString();
+        if (content) {
+          const contentMapping = detectApiSignatureInContent(content);
+          if (contentMapping) {
+            mapping = contentMapping;
+            logger.info('Sapience MW: file write routed by content signature', {
+              toolName,
+              moduleName: contentMapping.module,
+              methodName: contentMapping.method,
+            });
           }
         }
       }

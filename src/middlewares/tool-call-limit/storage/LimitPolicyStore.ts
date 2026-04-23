@@ -4,10 +4,12 @@
  * under key "tool_call_limit".
  */
 
+import { statSync } from 'fs';
 import { LimitPolicy, LimitRule, DEFAULT_LIMIT_POLICY } from '../types.js';
 import { logger } from '../../../shared/Logger.js';
 import { ConfigStore } from '../../../shared/storage/ConfigStore.js';
 import { STORE_KEY_TOOL_CALL_LIMIT } from '../../../shared/storage/paths.js';
+import { SAPIENCE_MW_STORE_FILE } from '../../../shared/Logger.js';
 
 const DEFAULT_LIMITS = DEFAULT_LIMIT_POLICY;
 
@@ -20,14 +22,24 @@ export class LimitPolicyStore {
    * on every tool call.
    */
   private static cachedPolicy: PersistedLimitPolicy | null = null;
+  private static cachedMtimeMs: number = 0;
 
   /**
-   * Return the cached policy (zero I/O). Falls back to loadSync() on
-   * first call before the cache is populated.
+   * Return the cached policy. Re-reads from disk whenever the underlying
+   * store file's mtime changes — defensive against cross-module-instance
+   * cache drift (two module copies on Windows dynamic-import cache keys).
+   * Cost: one `stat()` per tool call (microseconds).
    */
   static getCached(): PersistedLimitPolicy {
-    if (!this.cachedPolicy) {
+    let currentMtime = 0;
+    try {
+      currentMtime = statSync(SAPIENCE_MW_STORE_FILE).mtimeMs;
+    } catch {
+      // file missing — fall through to load which handles the empty case
+    }
+    if (!this.cachedPolicy || currentMtime !== this.cachedMtimeMs) {
       this.cachedPolicy = this.loadSync();
+      this.cachedMtimeMs = currentMtime;
     }
     return this.cachedPolicy;
   }
@@ -38,6 +50,11 @@ export class LimitPolicyStore {
    */
   static refreshCache(): void {
     this.cachedPolicy = this.loadSync();
+    try {
+      this.cachedMtimeMs = statSync(SAPIENCE_MW_STORE_FILE).mtimeMs;
+    } catch {
+      this.cachedMtimeMs = 0;
+    }
     logger.debug('Limit policy cache refreshed');
   }
 

@@ -47,7 +47,10 @@ export function registerContextEditingCommands(program: Command) {
       '--set-custom-prompt <file>',
       'Enable custom ICC prompt: <file> = path to JSON {"instructions":"...","schema":"..."}'
     )
-    .option('--disable-custom-prompt', 'Disable custom ICC prompt and revert to built-in extraction')
+    .option(
+      '--disable-custom-prompt',
+      'Disable custom ICC prompt and revert to built-in extraction'
+    )
     .action(ctxConfigCommand);
 
   ctxEdit

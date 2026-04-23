@@ -24,7 +24,6 @@ import {
   CompactionResult,
   CompactionTrigger,
 } from './types.js';
-import { createHash } from 'crypto';
 import { logger } from '../../shared/Logger.js';
 import { diag } from './diagnostic.js';
 import path from 'path';
@@ -187,15 +186,13 @@ export class ContextCurator {
         }
       }
 
-      const instruction = this.buildDynamicInstruction(dynamicSections);
-      const instructionHash = createHash('sha256').update(instruction).digest('hex').slice(0, 16);
       return {
         trigger,
-        iccInstruction: instruction,
+        iccInstruction: '',
         extractedEntities: [],
         resolvedConflicts: [],
         prioritySegments: [],
-        instructionHash,
+        instructionHash: '',
         timestamp: new Date().toISOString(),
         dynamicSections,
       };
@@ -242,17 +239,13 @@ export class ContextCurator {
       });
     }
 
-    const instruction = this.buildCompactionInstruction(entities, conflicts, prioritySegments);
-
-    const instructionHash = createHash('sha256').update(instruction).digest('hex').slice(0, 16);
-
     return {
       trigger,
-      iccInstruction: instruction,
+      iccInstruction: '',
       extractedEntities: entities,
       resolvedConflicts: conflicts,
       prioritySegments,
-      instructionHash,
+      instructionHash: '',
       timestamp: new Date().toISOString(),
     };
   }
@@ -338,25 +331,6 @@ export class ContextCurator {
         // Best-effort cleanup
       }
     }
-  }
-
-  /**
-   * Render the dynamic sections produced by a custom prompt as the
-   * compaction instruction. Keys become titles; array items become bullets.
-   */
-  private buildDynamicInstruction(sections: Record<string, unknown[]> | undefined): string {
-    if (!sections) return '';
-    const lines: string[] = [];
-    for (const [key, items] of Object.entries(sections)) {
-      if (!Array.isArray(items) || items.length === 0) continue;
-      lines.push(`### ${key}`);
-      for (const item of items) {
-        const rendered = typeof item === 'string' ? item : JSON.stringify(item);
-        lines.push(`- ${rendered}`);
-      }
-      lines.push('');
-    }
-    return lines.join('\n');
   }
 
   // ---------------------------------------------------------------------------
@@ -652,51 +626,6 @@ export class ContextCurator {
     }
 
     return conflicts;
-  }
-
-  /**
-   * Build the compaction instruction string.
-   * This is passed to `session.compact({ customInstructions: ... })`.
-   */
-  buildCompactionInstruction(
-    entities: EntityLock[],
-    conflicts: ConflictResolution[],
-    prioritySegments: string[]
-  ): string {
-    const sections: string[] = [];
-
-    // Priority preservation
-    if (prioritySegments.length > 0) {
-      sections.push('### Priority Preservation');
-      sections.push('The following objectives and active tasks MUST be preserved in full:');
-      for (const segment of prioritySegments) {
-        sections.push(`- ${segment}`);
-      }
-      sections.push('');
-    }
-
-    // Conflict resolutions
-    if (conflicts.length > 0) {
-      sections.push('### Conflict Resolutions');
-      sections.push('The following instruction overrides have been detected and resolved:');
-      for (const conflict of conflicts) {
-        sections.push(
-          `- OVERRIDE: ${conflict.original} → ${conflict.override}. Use ${conflict.resolved} only.`
-        );
-      }
-      sections.push('');
-    }
-
-    // Entity locks
-    if (entities.length > 0) {
-      sections.push('### Entity Locks (preserve verbatim)');
-      for (const entity of entities) {
-        sections.push(`- ${entity.name}: ${entity.value}`);
-      }
-      sections.push('');
-    }
-
-    return sections.join('\n');
   }
 
   // ---------------------------------------------------------------------------

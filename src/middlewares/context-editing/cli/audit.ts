@@ -51,9 +51,9 @@ export async function ctxAuditCommand(options: {
         console.log(`  ${chalk.cyan('✂️  Slice Anchor:')}   ${chalk.dim(record.firstKeptEntryId)}`);
       }
 
-      // Display Instruction
+      // Display Compaction Summary
       if (options.full && record.iccInstruction) {
-        console.log(chalk.dim('  Instruction:'));
+        console.log(chalk.dim('  Compaction Summary:'));
         const indented = record.iccInstruction
           .split('\n')
           .map((line) => `    ${line}`)
@@ -62,10 +62,12 @@ export async function ctxAuditCommand(options: {
         console.log(chalk.dim(`    [hash: ${hash}]`));
       } else if (record.iccInstruction) {
         const truncated = record.iccInstruction.split('\n')[0].substring(0, 60) + '...';
-        console.log(`  Instruction: ${chalk.dim(truncated)}  ${chalk.dim(`[hash: ${hash}]`)}`);
+        console.log(
+          `  Compaction Summary: ${chalk.dim(truncated)}  ${chalk.dim(`[hash: ${hash}]`)}`
+        );
       } else if (options.full) {
         console.log(
-          chalk.dim('  Instruction: (none — no entities/conflicts/priorities extracted)')
+          chalk.dim('  Compaction Summary: (none — no entities/conflicts/priorities extracted)')
         );
       }
 

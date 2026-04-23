@@ -431,10 +431,8 @@ function discoveredAgentic(
 ): Record<Tier, TierModelConfig> {
   // Sort by tool-richness (toolChoice + parallelToolCalls), tiebreaker price desc
   const toolRich = [...byPriceDesc].sort((a, b) => {
-    const scoreA =
-      (a.capabilities.toolChoice ? 2 : 0) + (a.capabilities.parallelToolCalls ? 1 : 0);
-    const scoreB =
-      (b.capabilities.toolChoice ? 2 : 0) + (b.capabilities.parallelToolCalls ? 1 : 0);
+    const scoreA = (a.capabilities.toolChoice ? 2 : 0) + (a.capabilities.parallelToolCalls ? 1 : 0);
+    const scoreB = (b.capabilities.toolChoice ? 2 : 0) + (b.capabilities.parallelToolCalls ? 1 : 0);
     if (scoreB !== scoreA) return scoreB - scoreA;
     return (b.inputPrice ?? 0) - (a.inputPrice ?? 0);
   });

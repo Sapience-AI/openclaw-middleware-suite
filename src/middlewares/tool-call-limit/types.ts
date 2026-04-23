@@ -25,6 +25,13 @@ export interface LimitPolicy {
   version: string;
   globalSessionCallLimit?: number;
   globalRequestCallLimit?: number;
+  /**
+   * ISO timestamp bumped by `sai limits reset`. The middleware watches this
+   * field and clears in-memory trackers when it changes.
+   */
+  resetAt?: string;
+  /** Which scope the most recent reset targeted. */
+  resetScope?: 'all' | 'session' | 'request';
   modules: {
     [moduleName: string]: {
       [methodName: string]: LimitRule;
