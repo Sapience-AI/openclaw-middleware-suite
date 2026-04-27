@@ -6,39 +6,39 @@
 # More specific rules below override the default catch-all.
 
 # ── Default: all files require review from core maintainers ───────
-*                                   @mfurqanazhar92 @sshariqali
+*                                   @mfurqanazhar92 @sshariqali @sapience-tholken @frankdsai @clee-sai
 
 # ── CI/CD, workflows, and Dependabot config ───────────────────────
 # Any change here can affect the entire supply chain — always requires
 # a maintainer with admin access to review.
-/.github/workflows/                 @mfurqanazhar92 @sshariqali @sapience-tholken
-/.github/dependabot.yml             @mfurqanazhar92 @sshariqali @sapience-tholken
-/.github/CODEOWNERS                 @mfurqanazhar92 @sshariqali @sapience-tholken
+/.github/workflows/                 @mfurqanazhar92 @sshariqali @sapience-tholken @frankdsai @clee-sai
+/.github/dependabot.yml             @mfurqanazhar92 @sshariqali @sapience-tholken @frankdsai @clee-sai
+/.github/CODEOWNERS                 @mfurqanazhar92 @sshariqali @sapience-tholken @frankdsai @clee-sai
 
 # ── Security-sensitive middleware ──────────────────────────────────
 # Prompt-injection guardrails, PII redaction, and HITL approvals are
 # the highest-risk code paths. Changes require dual maintainer sign-off.
-/src/guardrail/                     @mfurqanazhar92 @sshariqali
-/src/pii/                           @mfurqanazhar92 @sshariqali
-/src/hitl/                          @mfurqanazhar92 @sshariqali
+/src/guardrail/                     @mfurqanazhar92 @sshariqali @sapience-tholken @frankdsai @clee-sai
+/src/pii/                           @mfurqanazhar92 @sshariqali @sapience-tholken @frankdsai @clee-sai
+/src/hitl/                          @mfurqanazhar92 @sshariqali @sapience-tholken @frankdsai @clee-sai
 
 # ── Core interfaces and public API surface ─────────────────────────
-/src/types/                         @mfurqanazhar92 @sshariqali
-/src/index.ts                       @mfurqanazhar92 @sshariqali
+/src/types/                         @mfurqanazhar92 @sshariqali @sapience-tholken @frankdsai @clee-sai
+/src/index.ts                       @mfurqanazhar92 @sshariqali @sapience-tholken @frankdsai @clee-sai
 
 # ── Package manifest and lockfile ─────────────────────────────────
 # Changes here affect every consumer of the package.
-/package.json                       @mfurqanazhar92 @sshariqali
-/package-lock.json                  @mfurqanazhar92 @sshariqali
+/package.json                       @mfurqanazhar92 @sshariqali @sapience-tholken @frankdsai @clee-sai
+/package-lock.json                  @mfurqanazhar92 @sshariqali @sapience-tholken @frankdsai @clee-sai
 
 # ── TypeScript configuration ───────────────────────────────────────
-/tsconfig*.json                     @mfurqanazhar92 @sshariqali
+/tsconfig*.json                     @mfurqanazhar92 @sshariqali @sapience-tholken @frankdsai @clee-sai
 
 # ── Security policy ────────────────────────────────────────────────
-/SECURITY.md                        @mfurqanazhar92 @sshariqali @sapience-tholken
+/SECURITY.md                        @mfurqanazhar92 @sshariqali @sapience-tholken @frankdsai @clee-sai
 
 # ── Test fixtures for security-sensitive middleware ────────────────
 # The offshore team can own general tests but security test fixtures
 # require a core maintainer review.
-/test/guardrail/                    @mfurqanazhar92 @sshariqali
-/test/pii/                          @mfurqanazhar92 @sshariqali
+/test/guardrail/                    @mfurqanazhar92 @sshariqali @sapience-tholken @frankdsai @clee-sai
+/test/pii/                          @mfurqanazhar92 @sshariqali @sapience-tholken @frankdsai @clee-sai
