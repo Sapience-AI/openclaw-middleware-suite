@@ -1,1 +1,44 @@
-* @mfurqanazhar92 @sshariqali
+# CODEOWNERS — Sapience-AI/openclaw-middleware-suite
+#
+# At least one matching CODEOWNER must approve before merging to main.
+# Requires: Settings > Branches > "Require review from Code Owners" = ON
+#
+# More specific rules below override the default catch-all.
+
+# ── Default: all files require review from core maintainers ───────
+*                                   @mfurqanazhar92 @sshariqali
+
+# ── CI/CD, workflows, and Dependabot config ───────────────────────
+# Any change here can affect the entire supply chain — always requires
+# a maintainer with admin access to review.
+/.github/workflows/                 @mfurqanazhar92 @sshariqali @sapience-tholken
+/.github/dependabot.yml             @mfurqanazhar92 @sshariqali @sapience-tholken
+/.github/CODEOWNERS                 @mfurqanazhar92 @sshariqali @sapience-tholken
+
+# ── Security-sensitive middleware ──────────────────────────────────
+# Prompt-injection guardrails, PII redaction, and HITL approvals are
+# the highest-risk code paths. Changes require dual maintainer sign-off.
+/src/guardrail/                     @mfurqanazhar92 @sshariqali
+/src/pii/                           @mfurqanazhar92 @sshariqali
+/src/hitl/                          @mfurqanazhar92 @sshariqali
+
+# ── Core interfaces and public API surface ─────────────────────────
+/src/types/                         @mfurqanazhar92 @sshariqali
+/src/index.ts                       @mfurqanazhar92 @sshariqali
+
+# ── Package manifest and lockfile ─────────────────────────────────
+# Changes here affect every consumer of the package.
+/package.json                       @mfurqanazhar92 @sshariqali
+/package-lock.json                  @mfurqanazhar92 @sshariqali
+
+# ── TypeScript configuration ───────────────────────────────────────
+/tsconfig*.json                     @mfurqanazhar92 @sshariqali
+
+# ── Security policy ────────────────────────────────────────────────
+/SECURITY.md                        @mfurqanazhar92 @sshariqali @sapience-tholken
+
+# ── Test fixtures for security-sensitive middleware ────────────────
+# The offshore team can own general tests but security test fixtures
+# require a core maintainer review.
+/test/guardrail/                    @mfurqanazhar92 @sshariqali
+/test/pii/                          @mfurqanazhar92 @sshariqali
