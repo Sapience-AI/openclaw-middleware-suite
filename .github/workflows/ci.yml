@@ -102,8 +102,9 @@ jobs:
     if: github.event_name == 'pull_request' && always()
     continue-on-error: true
     permissions:
-      pull-requests: write
-      issues: write
+      actions: read         # download artifact from test job
+      pull-requests: write  # post/update coverage comment
+      issues: write         # required by github-script to post issue comments
     steps:
       - name: Download coverage artifact
         uses: actions/download-artifact@fa0a91b85d4f404e444306234f04db61e3f67693  # v4.1.8

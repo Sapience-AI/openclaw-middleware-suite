@@ -34,7 +34,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@48ab28a6f5dbc2a99bf1e0131198dd8f1df78169  # v3.28.0
+        uses: github/codeql-action/init@ce64ddcb0d8d890d2df4a9d1c04ff297367dea2a  # v3.35.2
         with:
           languages: ${{ matrix.language }}
           # security-extended covers injection, path traversal, prototype pollution —
@@ -43,10 +43,10 @@ jobs:
 
       # Autobuild compiles the project; for TypeScript it runs `npm ci && tsc`.
       - name: Autobuild
-        uses: github/codeql-action/autobuild@dd746615b3b9d728a6a37ca2045b68ca76d4841f  # v3.28.0
+        uses: github/codeql-action/autobuild@ce64ddcb0d8d890d2df4a9d1c04ff297367dea2a  # v3.35.2
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@b56ba49b26af57cf8bdd1b0010ba4de6f963bd3e  # v3.28.0
+        uses: github/codeql-action/analyze@ce64ddcb0d8d890d2df4a9d1c04ff297367dea2a  # v3.35.2
         with:
           category: "/language:${{ matrix.language }}"
           upload: always
