@@ -1,0 +1,271 @@
+OpenClaw Middleware Suite
+Copyright (c) 2026 Sapience AI Corporation
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+The full text of the Apache License, Version 2.0 may also be found at:
+    http://www.apache.org/licenses/LICENSE-2.0
+
+This product includes software derived from third-party open-source projects.
+The applicable copyright notices, license terms, and required attributions are
+listed below.
+
+================================================================================
+1. Reins (Human-in-the-Loop Middleware)
+================================================================================
+
+The Human-in-the-Loop (HITL) middleware in this product is derived from the
+Reins project by Pegasi.
+
+  Project:   Reins (@pegasi-ai/reins)
+  Author:    Kevin Wu and Pegasi contributors
+  Source:    https://github.com/pegasi-ai/reins
+  License:   Apache License, Version 2.0
+  License text: http://www.apache.org/licenses/LICENSE-2.0
+
+  Copyright (c) Kevin Wu and Pegasi contributors. All rights reserved.
+
+  Licensed under the Apache License, Version 2.0 (the "License"); you may not
+  use the affected files except in compliance with the License. Unless
+  required by applicable law or agreed to in writing, software distributed
+  under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
+  CONDITIONS OF ANY KIND, either express or implied.
+
+  The following files in this repository are derived from Reins. They have
+  been modified for use in the OpenClaw Middleware Suite. Each file carries a
+  per-file Apache-2.0 header identifying its origin and modified status, in
+  accordance with Section 4(b) of the Apache License, Version 2.0:
+
+    src/middlewares/hitl/Interceptor.ts
+    src/middlewares/hitl/config.ts
+    src/middlewares/hitl/tool-interceptor.ts
+    src/middlewares/hitl/approval/ApprovalQueue.ts
+    src/middlewares/hitl/approval/Arbitrator.ts
+    src/middlewares/hitl/approval/TrustRateLimiter.ts
+    src/middlewares/hitl/approval/approval-commands.ts
+    src/middlewares/hitl/cli/audit.ts
+    src/middlewares/hitl/cli/index.ts
+    src/middlewares/hitl/cli/init.ts
+    src/middlewares/hitl/cli/policy.ts
+    src/middlewares/hitl/cli/reset.ts
+    src/middlewares/hitl/cli/stats.ts
+    src/middlewares/hitl/scoring/BrowserChallengeDetector.ts
+    src/middlewares/hitl/scoring/DestructiveClassifier.ts
+    src/middlewares/hitl/scoring/IrreversibilityScorer.ts
+    src/middlewares/hitl/scoring/MemoryRiskForecaster.ts
+    src/middlewares/hitl/storage/BrowserSessionStore.ts
+    src/middlewares/hitl/storage/DecisionLog.ts
+    src/middlewares/hitl/storage/PolicyStore.ts
+    src/middlewares/hitl/storage/StatsTracker.ts
+    src/shared/Logger.ts
+    src/shared/cli/index.ts
+    src/shared/cli/init.ts
+    src/shared/cli/toggle.ts
+
+  In addition, the following file contains type definitions partially derived
+  from Reins (Decision, SecurityRule, SecurityPolicy, InterventionMetadata,
+  ExecutionContext) and is annotated accordingly:
+
+    src/types.ts
+
+================================================================================
+2. Manifest (Model Routing Middleware)
+================================================================================
+
+The Model Routing middleware in this product is derived from the Manifest
+project by MNFST, Inc.
+
+  Project:   Manifest
+  Author:    MNFST, Inc. and the Manifest contributors
+  Source:    https://github.com/mnfst/manifest
+  Homepage:  https://manifest.build
+  License:   MIT License
+  License text: https://opensource.org/licenses/MIT
+
+  MIT License
+
+  Copyright (c) 2026 MNFST, Inc.
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files (the "Software"), to deal
+  in the Software without restriction, including without limitation the rights
+  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+  copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be included in
+  all copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+  FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+  DEALINGS IN THE SOFTWARE.
+
+  The following files in this repository are derived from Manifest. They have
+  been modified for use in the OpenClaw Middleware Suite. Each file carries a
+  per-file MIT header identifying its origin and modified status:
+
+    src/middlewares/model-routing/cli/models.ts
+    src/middlewares/model-routing/providers/anthropic.ts
+    src/middlewares/model-routing/providers/discovery.ts
+    src/middlewares/model-routing/providers/google.ts
+    src/middlewares/model-routing/providers/types.ts
+    src/middlewares/model-routing/scoring/dimensions/structural-dimensions.ts
+    src/middlewares/model-routing/scoring/keyword-trie.ts
+    src/middlewares/model-routing/scoring/scorer.ts
+    src/middlewares/model-routing/scoring/sigmoid.ts
+    src/middlewares/model-routing/scoring/text-extractor.ts
+    src/middlewares/model-routing/selection/auto-assign.ts
+    src/middlewares/model-routing/session/momentum.ts
+
+  Additionally, the following files contain portions derived from Manifest
+  combined with portions derived from ClawRouter (see Section 3 below). They
+  carry a dual-attribution header:
+
+    src/middlewares/model-routing/config.ts
+    src/middlewares/model-routing/plugins/types.ts
+    src/middlewares/model-routing/scoring/dimensions/keyword-dimensions.ts
+    src/middlewares/model-routing/scoring/overrides.ts
+    src/middlewares/model-routing/selection/fallback.ts
+
+================================================================================
+3. ClawRouter (Model Routing Middleware)
+================================================================================
+
+The Model Routing middleware in this product also incorporates code derived
+from the ClawRouter project by BlockRun (BlockRunAI).
+
+  Project:   ClawRouter (@blockrun/clawrouter)
+  Author:    BlockRun <hello@blockrun.ai>
+  Source:    https://github.com/BlockRunAI/ClawRouter
+  License:   MIT License
+  License text: https://opensource.org/licenses/MIT
+
+  MIT License
+
+  Copyright (c) 2026 BlockRunAI
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files (the "Software"), to deal
+  in the Software without restriction, including without limitation the rights
+  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+  copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be included in
+  all copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+  FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+  DEALINGS IN THE SOFTWARE.
+
+  The following files in this repository are derived from ClawRouter. They
+  have been modified for use in the OpenClaw Middleware Suite. Each file
+  carries a per-file MIT header identifying its origin and modified status:
+
+    src/middlewares/model-routing/cache/dedup.ts
+    src/middlewares/model-routing/cache/response-cache.ts
+    src/middlewares/model-routing/cli/exclude.ts
+    src/middlewares/model-routing/proxy/handler.ts
+    src/middlewares/model-routing/router-config-inject.ts
+    src/middlewares/model-routing/router-provider.ts
+    src/middlewares/model-routing/scoring/llm-classifier.ts
+    src/middlewares/model-routing/selection/exclusions.ts
+    src/middlewares/model-routing/selection/profiles.ts
+    src/middlewares/model-routing/session/session-store.ts
+
+  The five files listed at the end of Section 2 (Manifest) also contain
+  portions derived from ClawRouter and carry the dual-attribution header.
+
+================================================================================
+4. OpenClaw Shield (Guardrail Middleware)
+================================================================================
+
+The Guardrail middleware in this product incorporates code, patterns, and
+detection rules derived from the OpenClaw Shield project by Knostic.
+
+  Project:   OpenClaw Shield (@knostic/openclaw-shield)
+  Author:    Knostic
+  Source:    https://github.com/knostic/openclaw-shield
+  License:   Apache License, Version 2.0
+  License text: http://www.apache.org/licenses/LICENSE-2.0
+
+  Copyright (c) Knostic. All rights reserved.
+
+  Licensed under the Apache License, Version 2.0 (the "License"); you may not
+  use the affected files except in compliance with the License. Unless
+  required by applicable law or agreed to in writing, software distributed
+  under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
+  CONDITIONS OF ANY KIND, either express or implied.
+
+  The following files in this repository contain code, scanner logic, or
+  detection patterns derived from OpenClaw Shield. They have been modified
+  and extended for use in the OpenClaw Middleware Suite, in accordance with
+  Section 4(b) of the Apache License, Version 2.0:
+
+    src/middlewares/guardrail/analyzers/DetectionFactory.ts
+    src/middlewares/guardrail/scanners/HeuristicScanner.ts
+    src/middlewares/guardrail/guards/sensitive-paths.ts
+    src/middlewares/guardrail/guards/destructive-commands.ts
+    src/middlewares/guardrail/guards/egress-control.ts
+    src/middlewares/guardrail/rules/suspicious.rules.ts
+
+================================================================================
+5. OpenGuardrails (Guardrail Middleware)
+================================================================================
+
+The Guardrail middleware in this product also incorporates detection rules,
+classification taxonomy, and prompt-injection patterns derived from the
+OpenGuardrails project.
+
+  Project:   OpenGuardrails
+  Source:    https://github.com/openguardrails/openguardrails
+  License:   Apache License, Version 2.0 (modified — with additional
+             conditions covering multi-tenant SaaS use and frontend brand
+             attribution; see the upstream LICENSE for details)
+  License text: http://www.apache.org/licenses/LICENSE-2.0
+
+  Copyright (c) OpenGuardrails contributors. All rights reserved.
+
+  Licensed under the Apache License, Version 2.0 (the "License") with the
+  additional conditions stated in the upstream LICENSE file. You may not
+  use the affected files except in compliance with the License. Unless
+  required by applicable law or agreed to in writing, software distributed
+  under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
+  CONDITIONS OF ANY KIND, either express or implied.
+
+  Note on the additional conditions: the OpenClaw Middleware Suite uses
+  OpenGuardrails purely as a backend / SDK-style component. It does not
+  embed, redistribute, or expose the OpenGuardrails frontend interface,
+  and it does not operate a multi-tenant SaaS environment based on the
+  OpenGuardrails source code.
+
+  The following files in this repository contain detection rules and
+  classification patterns derived from the OpenGuardrails risk taxonomy
+  (S01 task hijacking / concealment / data exfiltration, S03 XSS, fake
+  system-message detection, etc.). They have been modified for use in the
+  OpenClaw Middleware Suite, in accordance with Section 4(b) of the Apache
+  License, Version 2.0:
+
+    src/middlewares/guardrail/rules/prompt-injection.rules.ts
+    src/middlewares/guardrail/rules/suspicious.rules.ts
+
+  Where a file (e.g. `suspicious.rules.ts`) contains rules derived from both
+  OpenClaw Shield (Section 4) and OpenGuardrails (Section 5), individual
+  rule entries are annotated inline with their respective origin.
+
+================================================================================
+Transitive Dependencies
+================================================================================
+
+This product also depends, at build and/or runtime, on additional open-source
+packages declared in `package.json` and `package-lock.json`. Each such
+dependency is distributed under its own license; refer to the corresponding
+package metadata in the `node_modules` tree for the full text of those
+licenses.

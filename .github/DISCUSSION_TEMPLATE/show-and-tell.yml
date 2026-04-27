@@ -1,0 +1,50 @@
+title: "[Show & Tell] "
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Show and Tell
+        Share what you've built with Sapience AI Suite — custom guards, integrations, workflows, security setups, or anything cool.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What did you build?
+      description: Describe your project, integration, or use case.
+      placeholder: |
+        I built a custom guardrail guard that...
+        I integrated Sapience with my Slack bot to...
+    validations:
+      required: true
+
+  - type: textarea
+    id: how
+    attributes:
+      label: How it works
+      description: Share code snippets, config, architecture, or screenshots.
+      placeholder: |
+        ```typescript
+        // Custom guard example
+        ```
+    validations:
+      required: false
+
+  - type: textarea
+    id: learnings
+    attributes:
+      label: Learnings or tips
+      description: Anything you learned along the way that others might find useful.
+    validations:
+      required: false
+
+  - type: textarea
+    id: links
+    attributes:
+      label: Links
+      description: Repository, blog post, demo, or video.
+      placeholder: |
+        - Repo: https://github.com/...
+        - Blog: https://...
+    validations:
+      required: false

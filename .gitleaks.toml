@@ -1,0 +1,19 @@
+title = "OpenClaw Middleware Suite — gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = """
+Guardrail and PII Sanitizer test fixtures contain format-valid fake secrets
+(AWS, Stripe, GCP, Anthropic, Slack, GitHub, SendGrid, npm, JWT, private keys,
+DB connection strings, etc.) used to verify that the middlewares' detection
+regexes correctly identify secret-shaped strings. They are never real
+credentials. Suppressing the entire test directories is intentional —
+any change in scan output for these paths would mean the detection
+regexes themselves are being tested, not real exposure.
+"""
+paths = [
+  '''test/guardrail/.*''',
+  '''test/pii-sanitizer/.*''',
+]

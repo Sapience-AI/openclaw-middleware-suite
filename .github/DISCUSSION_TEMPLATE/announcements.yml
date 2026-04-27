@@ -1,0 +1,48 @@
+title: "[Announcement] "
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Announcements
+        Official updates from the Sapience AI team — releases, breaking changes, roadmap milestones.
+
+  - type: input
+    id: version
+    attributes:
+      label: Related version (if applicable)
+      placeholder: e.g. v1.2.0
+    validations:
+      required: false
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What's new or changing?
+      placeholder: Describe the announcement...
+    validations:
+      required: true
+
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+      description: Additional context, migration steps, or links.
+      placeholder: |
+        - What changed
+        - Why it matters
+        - Any action required from users
+    validations:
+      required: false
+
+  - type: textarea
+    id: links
+    attributes:
+      label: Related links
+      description: PRs, docs, release notes, etc.
+      placeholder: |
+        - PR: #123
+        - Docs: https://...
+    validations:
+      required: false

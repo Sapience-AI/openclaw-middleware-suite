@@ -1,0 +1,54 @@
+/* ─── uPlot chart customization ────────────────────────────────────────── */
+
+.chart-wrap {
+  background: var(--sai-surface);
+  border: 1px solid var(--sai-border-light);
+  border-radius: var(--sai-radius);
+  padding: 20px;
+}
+
+.chart-title {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--sai-text-primary);
+  margin-bottom: 12px;
+}
+
+.chart-container {
+  position: relative;
+  width: 100%;
+  min-height: 200px;
+}
+
+/* uPlot overrides */
+.uplot {
+  font-family: var(--sai-font) !important;
+}
+
+.u-legend {
+  font-size: 12px !important;
+  padding: 8px 0 0 !important;
+}
+
+.u-legend .u-label {
+  color: var(--sai-text-secondary) !important;
+}
+
+.u-legend .u-value {
+  color: var(--sai-text-primary) !important;
+  font-weight: 500 !important;
+}
+
+.u-cursor-x, .u-cursor-y {
+  border-color: var(--sai-border) !important;
+}
+
+/* Chart empty state */
+.chart-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+  color: var(--sai-text-muted);
+  font-size: 14px;
+}

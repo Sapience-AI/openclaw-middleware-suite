@@ -1,0 +1,25 @@
+title: ""
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## General Discussion
+        Open-ended conversation about Sapience AI Suite, OpenClaw, agent security, or anything related.
+
+  - type: textarea
+    id: topic
+    attributes:
+      label: What's on your mind?
+      description: Share a thought, observation, or start a conversation.
+      placeholder: Write your message here...
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Links, screenshots, or background info that helps others follow along.
+    validations:
+      required: false

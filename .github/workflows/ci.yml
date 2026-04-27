@@ -1,0 +1,206 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  # ── Lint + Security Audit (merged — same Node, same npm ci) ─────
+  lint:
+    name: Lint & Audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js 20.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.x"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run ESLint
+        run: npm run lint
+
+      - name: Check formatting
+        run: npx prettier --check "src/**/*.ts"
+
+      - name: Audit dependencies
+        run: npm audit --audit-level=high
+
+  # ── Build, Test & Coverage ────────────────────────────────────
+  test:
+    name: Test (Node ${{ matrix.node-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    strategy:
+      matrix:
+        node-version: ['20.x', '22.x']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Backend-only build — tests don't need the Preact dashboard bundle.
+      # `tsc` here doubles as the type check, so no separate --noEmit step.
+      - name: Build backend
+        run: npm run build:backend
+
+      # Single c8 invocation: runs tests, collects coverage, enforces thresholds,
+      # emits all reporters. Replaces prior two-step (run + check-coverage) flow.
+      # --test-concurrency=4 parallelizes test files across workers.
+      - name: Run tests with coverage
+        run: |
+          npx c8 --check-coverage --lines 75 --branches 70 --statements 75 \
+            --reporter=text --reporter=text-summary --reporter=json-summary --reporter=lcov \
+            node --test --test-concurrency=4 test/**/*.test.mjs
+
+      # Upload coverage artifact for downstream jobs (only on primary Node version)
+      - name: Upload coverage artifacts
+        if: always() && matrix.node-version == '20.x'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+          retention-days: 14
+
+  # ── Coverage comment (separate job so the matrix `test` legs don't
+  # resolve github-script@v7 at setup time — prevents transient GitHub
+  # action-download blips from failing the whole matrix) ───────────
+  coverage-comment:
+    name: Post coverage comment
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.event_name == 'pull_request' && always()
+    continue-on-error: true
+    permissions:
+      pull-requests: write
+      issues: write
+    steps:
+      - name: Download coverage artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+
+      - name: Post coverage comment on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = 'coverage/coverage-summary.json';
+
+            let body = '## 📊 Test Coverage Report\n\n';
+
+            if (!fs.existsSync(path)) {
+              body += '⚠️ Coverage report was not generated. Tests may have failed before coverage collection.\n';
+            } else {
+              const summary = JSON.parse(fs.readFileSync(path, 'utf8'));
+              const total = summary.total;
+
+              // CI thresholds: 75% lines/statements, 70% branches
+              // Target: 80% (raise thresholds as coverage improves)
+              const THRESHOLDS = { lines: 75, statements: 75, branches: 70, functions: 0 };
+              const TARGET = 80;
+
+              const badge = (pct, threshold) => {
+                if (pct >= TARGET) return '✅';
+                if (pct >= threshold) return '🟡';
+                return '❌';
+              };
+
+              const fmt = (metric, key) => {
+                const pct = metric.pct;
+                const thresh = THRESHOLDS[key] || 0;
+                return `${badge(pct, thresh)} **${pct.toFixed(1)}%** (${metric.covered}/${metric.total})`;
+              };
+
+              body += '| Metric | Coverage | CI Gate | Target |\n';
+              body += '|--------|----------|---------|--------|\n';
+              body += `| Lines | ${fmt(total.lines, 'lines')} | ${THRESHOLDS.lines}% | ${TARGET}% |\n`;
+              body += `| Statements | ${fmt(total.statements, 'statements')} | ${THRESHOLDS.statements}% | ${TARGET}% |\n`;
+              body += `| Branches | ${fmt(total.branches, 'branches')} | ${THRESHOLDS.branches}% | ${TARGET}% |\n`;
+              body += `| Functions | ${fmt(total.functions, 'functions')} | — | ${TARGET}% |\n`;
+              body += '\n';
+
+              const gatePass = total.lines.pct >= THRESHOLDS.lines &&
+                               total.statements.pct >= THRESHOLDS.statements &&
+                               total.branches.pct >= THRESHOLDS.branches;
+              const targetMet = total.lines.pct >= TARGET && total.statements.pct >= TARGET &&
+                                total.branches.pct >= TARGET && total.functions.pct >= TARGET;
+
+              if (targetMet) {
+                body += '### ✅ Full 80% coverage target met!\n';
+              } else if (gatePass) {
+                body += '### 🟡 CI gate passed — coverage below 80% target\n\n';
+              } else {
+                body += '### ❌ Coverage below CI gate — PR merge blocked\n\n';
+              }
+
+              // Always show files below 80%
+              body += '<details>\n<summary>Files below 80% coverage</summary>\n\n';
+              body += '| File | Lines | Functions | Branches |\n';
+              body += '|------|-------|-----------|----------|\n';
+
+              for (const [file, data] of Object.entries(summary)) {
+                if (file === 'total') continue;
+                if (data.lines.pct < 80 || data.functions.pct < 80 || data.branches.pct < 80) {
+                  const shortPath = file.replace(process.cwd() + '/', '');
+                  body += `| \`${shortPath}\` | ${data.lines.pct.toFixed(1)}% | ${data.functions.pct.toFixed(1)}% | ${data.branches.pct.toFixed(1)}% |\n`;
+                }
+              }
+
+              body += '\n</details>\n';
+            }
+
+            body += '\n---\n*Generated by CI on commit ' + context.sha.substring(0, 7) + '*\n';
+
+            // Find existing coverage comment to update
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const existing = comments.find(c =>
+              c.user.type === 'Bot' && c.body.includes('📊 Test Coverage Report')
+            );
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }

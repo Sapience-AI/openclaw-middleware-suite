@@ -1,0 +1,16 @@
+{
+  "_comment": "Coverage scoped to 4 core security middleware (guardrail, hitl, pii-sanitizer, tool-call-limit). model-routing and context-editing are excluded — they are opt-in (default: false in plugin manifest) and have minimal test coverage (~10% and ~0% respectively). Add them here once their test suites reach parity.",
+  "include": [
+    "dist/middlewares/guardrail/**/*.js",
+    "dist/middlewares/hitl/**/*.js",
+    "dist/middlewares/pii-sanitizer/**/*.js",
+    "dist/middlewares/tool-call-limit/**/*.js"
+  ],
+  "exclude": [
+    "dist/**/cli/**",
+    "dist/**/test/**",
+    "dist/**/tests/**"
+  ],
+  "report-dir": "coverage",
+  "all": false
+}
