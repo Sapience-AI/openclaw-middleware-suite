@@ -28,6 +28,7 @@ jobs:
       matrix:
         language:
           - javascript-typescript  # covers both .js and .ts source
+          - actions                # covers GitHub Actions workflow security
 
     steps:
       - name: Checkout repository
