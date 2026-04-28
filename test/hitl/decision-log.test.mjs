@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
-import { rmSync, existsSync, readFileSync } from 'node:fs';
+import { rmSync } from 'node:fs';
 import { createOpenclawHome } from '../_helpers/test-env.mjs';
 
 const tempDir = createOpenclawHome('sapience-mw-decision-log-tests-');
