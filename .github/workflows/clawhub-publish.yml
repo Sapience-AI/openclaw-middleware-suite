@@ -1,0 +1,70 @@
+name: Publish to ClawHub
+
+# Publishes this plugin to ClawHub (https://clawhub.ai), the OpenClaw skill /
+# package registry. Mirrors the trigger pattern in publish.yml so that one
+# `gh release create vX.Y.Z` cuts both the npm publish and the ClawHub publish
+# atomically. `workflow_dispatch` is kept as a manual escape hatch and also
+# enables OIDC-based trusted publishing without a token.
+#
+# Detected family: code-plugin (this repo ships `openclaw.compat.pluginApi` and
+# `openclaw.build.openclawVersion` in package.json, plus `openclaw.plugin.json`).
+on:
+  release:
+    types: [published]
+  pull_request:
+    paths:
+      - "package.json"
+      - "openclaw.plugin.json"
+      - ".github/workflows/clawhub-publish.yml"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Preview only — resolve metadata without publishing."
+        required: false
+        type: boolean
+        default: false
+
+# HARDENED: deny all permissions by default; the publish job grants only
+# what it needs. Mirrors the convention in ci.yml and publish.yml.
+permissions: {}
+
+jobs:
+  # PR runs are dry-run only so CI never publishes from untrusted refs.
+  dry-run:
+    name: ClawHub dry-run
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+      id-token: write     # reusable workflow resolves its own source via OIDC
+    uses: openclaw/clawhub/.github/workflows/package-publish.yml@main
+    with:
+      dry_run: true
+
+  # Real publish on release-published, or on workflow_dispatch unless the
+  # operator explicitly ticks dry_run.
+  publish:
+    name: ClawHub publish
+    if: >-
+      github.event_name == 'release' ||
+      (github.event_name == 'workflow_dispatch' && inputs.dry_run == false)
+    permissions:
+      contents: read
+      id-token: write     # OIDC trusted publishing on workflow_dispatch
+    uses: openclaw/clawhub/.github/workflows/package-publish.yml@main
+    with:
+      dry_run: false
+    secrets:
+      # Required for tag/release publishes. Trusted publishing (OIDC) only
+      # covers `workflow_dispatch`; tag pushes still need the token.
+      clawhub_token: ${{ secrets.CLAWHUB_TOKEN }}
+
+  # Manual dry-run path: workflow_dispatch with dry_run=true.
+  manual-dry-run:
+    name: ClawHub manual dry-run
+    if: github.event_name == 'workflow_dispatch' && inputs.dry_run == true
+    permissions:
+      contents: read
+      id-token: write
+    uses: openclaw/clawhub/.github/workflows/package-publish.yml@main
+    with:
+      dry_run: true
