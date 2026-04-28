@@ -14,6 +14,7 @@
   <br />
 
   <p>
+    <a href="https://www.npmjs.com/package/@sapience-ai-corporation/openclaw-middleware-suite"><img src="https://img.shields.io/npm/v/@sapience-ai-corporation/openclaw-middleware-suite?logo=npm&label=npm" alt="npm version"></a>
     <a href="https://github.com/Sapience-AI/openclaw-middleware-suite/actions/workflows/ci.yml"><img src="https://github.com/Sapience-AI/openclaw-middleware-suite/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
     <a href="https://github.com/Sapience-AI/openclaw-middleware-suite/actions/workflows/ci.yml"><img src="https://img.shields.io/badge/coverage-%E2%89%A580%25-brightgreen" alt="Coverage ≥80%"></a>
     <a href="https://github.com/Sapience-AI/openclaw-middleware-suite/stargazers"><img src="https://img.shields.io/github/stars/Sapience-AI/openclaw-middleware-suite?style=flat&logo=github&label=stars" alt="GitHub stars"></a>
