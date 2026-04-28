@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="assets/banner.png" alt="OpenClaw Middleware Suite" />
+  <img src="https://raw.githubusercontent.com/Sapience-AI/openclaw-middleware-suite/main/assets/banner.png" alt="OpenClaw Middleware Suite" />
   <br />
   <br />
 
@@ -640,7 +640,7 @@ sai limits reset     # Reset counters
 > Real-time configuration and monitoring UI for all six middlewares.
 
 <p align="center">
-  <img src="assets/dashboard.svg" alt="Sapience AI Middleware Suite dashboard" width="100%" />
+  <img src="https://raw.githubusercontent.com/Sapience-AI/openclaw-middleware-suite/main/assets/dashboard.svg" alt="Sapience AI Middleware Suite dashboard" width="100%" />
 </p>
 
 The dashboard is a **Preact single-page application** served by the OpenClaw gateway. It provides live configuration, status monitoring, and log streaming for every middleware in the suite.
@@ -1557,7 +1557,7 @@ The Human-in-the-Loop middleware in `src/middlewares/hitl/` is derived from the 
 
 <div align="center">
   <br />
-  <img src="src/dashboard/public/sai-logo.svg" alt="Sapience AI" width="60" height="60" />
+  <img src="https://raw.githubusercontent.com/Sapience-AI/openclaw-middleware-suite/main/src/dashboard/public/sai-logo.svg" alt="Sapience AI" width="60" height="60" />
   <br />
   <br />
   <strong>Built by <a href="https://sapienceai.co">Sapience AI</a> for a safer AI future.</strong>
