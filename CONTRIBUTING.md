@@ -251,7 +251,7 @@ Every `.ts` / `.tsx` file under `src/` carries an Apache-2.0 copyright header.
 ## Project Structure
 
 ```
-Openclaw-Middleware-Suite/
+openclaw-middleware-suite/
 ├── src/
 │   ├── index.ts                   # Public root entry + `sai` CLI orchestrator (shebang)
 │   ├── types.ts                   # Shared type definitions (Middleware, MiddlewareResult, …)
