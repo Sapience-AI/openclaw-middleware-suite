@@ -38,12 +38,24 @@
   },
   "typesVersions": {
     "*": {
-      "hitl": ["dist/public/hitl.d.ts"],
-      "context-editing": ["dist/public/context-editing.d.ts"],
-      "model-routing": ["dist/public/model-routing.d.ts"],
-      "guardrail": ["dist/public/guardrail.d.ts"],
-      "pii-sanitizer": ["dist/public/pii-sanitizer.d.ts"],
-      "tool-call-limit": ["dist/public/tool-call-limit.d.ts"]
+      "hitl": [
+        "dist/public/hitl.d.ts"
+      ],
+      "context-editing": [
+        "dist/public/context-editing.d.ts"
+      ],
+      "model-routing": [
+        "dist/public/model-routing.d.ts"
+      ],
+      "guardrail": [
+        "dist/public/guardrail.d.ts"
+      ],
+      "pii-sanitizer": [
+        "dist/public/pii-sanitizer.d.ts"
+      ],
+      "tool-call-limit": [
+        "dist/public/tool-call-limit.d.ts"
+      ]
     }
   },
   "bin": {
@@ -58,7 +70,7 @@
     "test": "npm run build && node --test test/**/*.test.mjs",
     "test:coverage": "npm run build && c8 --check-coverage --lines 75 --branches 70 --statements 75 --reporter=text --reporter=text-summary --reporter=json-summary --reporter=lcov node --test test/**/*.test.mjs",
     "test:coverage:report": "npm run build && c8 --reporter=text --reporter=text-summary --reporter=json-summary --reporter=lcov node --test test/**/*.test.mjs",
-    "lint": "eslint src --ext .ts",
+    "lint": "eslint \"src/**/*.ts\"",
     "format": "prettier --write \"src/**/*.ts\"",
     "metrics": "node scripts/adoption-metrics.mjs",
     "metrics:json": "node scripts/adoption-metrics.mjs --json",
@@ -103,6 +115,7 @@
     "access": "public"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@preact/preset-vite": "^2.8.0",
     "@preact/signals": "^1.2.0",
     "@types/fs-extra": "^11.0.4",
@@ -112,10 +125,11 @@
     "@typescript-eslint/parser": "^8.58.2",
     "c8": "^11.0.0",
     "eslint": "^10.2.1",
-    "preact": "^10.19.0",
-    "preact-router": "^4.1.0",
+    "globals": "^17.5.0",
     "husky": "^9.1.7",
     "lint-staged": "^16.4.0",
+    "preact": "^10.19.0",
+    "preact-router": "^4.1.0",
     "prettier": "^3.1.1",
     "ts-node": "^10.9.2",
     "typescript": "^5.3.3",
