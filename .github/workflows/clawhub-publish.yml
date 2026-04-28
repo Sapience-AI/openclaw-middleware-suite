@@ -53,6 +53,7 @@ jobs:
     uses: openclaw/clawhub/.github/workflows/package-publish.yml@main
     with:
       dry_run: false
+      owner: sapience-ai-corporation
     secrets:
       # Required for tag/release publishes. Trusted publishing (OIDC) only
       # covers `workflow_dispatch`; tag pushes still need the token.
