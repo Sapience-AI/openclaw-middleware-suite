@@ -98,6 +98,11 @@ The plugin is the zero-code path: install the npm package, configure once with `
 # From npm (published plugin)
 openclaw plugins install @sapience-ai-corporation/openclaw-middleware-suite
 
+# Expose the `sai` CLI on your PATH (Windows users — admin / Developer Mode required)
+mkdir -p ~/.local/bin
+chmod +x ~/.openclaw/extensions/sapience-ai-suite/dist/index.js
+ln -sf ~/.openclaw/extensions/sapience-ai-suite/dist/index.js ~/.local/bin/sai
+
 # Or from source
 git clone https://github.com/Sapience-AI/openclaw-middleware-suite.git
 cd openclaw-middleware-suite
@@ -682,6 +687,29 @@ This is what OpenClaw's plugin loader sees when the suite is registered:
 ```
 
 The entry exports `SapienceMiddlewarePlugin` (a default-export object conforming to `SapienceMiddlewareManifest`). The loader registers each declared hook and dispatches to the in-process pipeline runner (`MiddlewareRegistry`).
+
+---
+
+### Uninstall
+
+Reverse the install in three steps. The order matters: drop the CLI shim first so nothing on `$PATH` can dangle, then unregister the plugin from the gateway, then restart so the runtime stops loading it.
+
+```bash
+# 1. Remove the `sai` CLI symlink (skip this line if you used `npm install -g` instead)
+rm ~/.local/bin/sai
+
+# 2. Unregister the plugin and remove its runtime files from ~/.openclaw/extensions/
+openclaw plugins uninstall sapience-ai-suite
+
+# 3. Reload the gateway so the plugin is no longer loaded in-process
+openclaw gateway restart
+```
+
+**Config and audit data are kept by default.** The on-disk config store at `~/.openclaw/sapience-ai-suite/` (HITL policies, model routes, guardrail rules, audit trail JSONL, MFA secrets) survives the uninstall — reinstalling later picks it back up automatically. To wipe it:
+
+```bash
+rm -rf ~/.openclaw/sapience-ai-suite
+```
 
 ---
 
