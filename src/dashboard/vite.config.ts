@@ -22,9 +22,10 @@ export default defineConfig({
     target: 'esnext',
     rollupOptions: {
       output: {
-        manualChunks: {
-          vendor: ['preact', 'preact/hooks', '@preact/signals'],
-          charts: ['uplot'],
+        manualChunks: (id) => {
+          if (id.includes('node_modules/uplot')) return 'charts';
+          if (id.includes('node_modules/preact') || id.includes('node_modules/@preact/signals'))
+            return 'vendor';
         },
       },
     },
