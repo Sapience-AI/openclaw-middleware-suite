@@ -1,0 +1,61 @@
+name: Publish to npm
+
+# Triggers when a GitHub Release is published.
+# Pair with `gh release create vX.Y.Z --notes-file CHANGELOG.md` — that
+# command creates the tag and the release atomically, firing this workflow.
+# `workflow_dispatch` is kept as a manual escape hatch (e.g. re-run after
+# fixing a transient publish failure without cutting a fresh release).
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+# HARDENED: deny all permissions by default; the publish job grants only
+# what it needs. Mirrors the convention in ci.yml.
+permissions: {}
+
+jobs:
+  publish:
+    name: Publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read       # checkout
+      id-token: write      # OIDC token for npm provenance attestation
+
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Setup Node.js 20.x
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af  # v4.2.0
+        with:
+          node-version: "20.x"
+          cache: "npm"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Guard against tagging a release without bumping package.json.
+      # On manual workflow_dispatch (no release context) the check is skipped.
+      - name: Verify tag matches package.json version
+        if: github.event_name == 'release'
+        run: |
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::Version mismatch — package.json=$PKG_VERSION, tag=$TAG_VERSION"
+            exit 1
+          fi
+
+      # Build is also run by `prepublishOnly` during `npm publish`, but doing
+      # it explicitly here surfaces build errors before the upload starts.
+      - name: Build
+        run: npm run build
+
+      # `publishConfig.provenance: true` in package.json drives the
+      # --provenance flag, so no CLI override needed here.
+      - name: Publish to npm
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

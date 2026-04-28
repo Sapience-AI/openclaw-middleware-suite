@@ -38,16 +38,28 @@
   },
   "typesVersions": {
     "*": {
-      "hitl": ["dist/public/hitl.d.ts"],
-      "context-editing": ["dist/public/context-editing.d.ts"],
-      "model-routing": ["dist/public/model-routing.d.ts"],
-      "guardrail": ["dist/public/guardrail.d.ts"],
-      "pii-sanitizer": ["dist/public/pii-sanitizer.d.ts"],
-      "tool-call-limit": ["dist/public/tool-call-limit.d.ts"]
+      "hitl": [
+        "dist/public/hitl.d.ts"
+      ],
+      "context-editing": [
+        "dist/public/context-editing.d.ts"
+      ],
+      "model-routing": [
+        "dist/public/model-routing.d.ts"
+      ],
+      "guardrail": [
+        "dist/public/guardrail.d.ts"
+      ],
+      "pii-sanitizer": [
+        "dist/public/pii-sanitizer.d.ts"
+      ],
+      "tool-call-limit": [
+        "dist/public/tool-call-limit.d.ts"
+      ]
     }
   },
   "bin": {
-    "sai": "./dist/index.js"
+    "sai": "dist/index.js"
   },
   "scripts": {
     "prebuild": "node -e \"fs.rmSync('dist', { recursive: true, force: true })\"",
@@ -81,7 +93,7 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Sapience-AI/openclaw-middleware-suite.git"
+    "url": "git+https://github.com/Sapience-AI/openclaw-middleware-suite.git"
   },
   "homepage": "https://github.com/Sapience-AI/openclaw-middleware-suite#readme",
   "bugs": {
@@ -100,7 +112,8 @@
     "openclaw": ">=2026.4.11"
   },
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "provenance": true
   },
   "devDependencies": {
     "@preact/preset-vite": "^2.8.0",
