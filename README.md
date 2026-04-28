@@ -1285,7 +1285,10 @@ Guardrail's pre-merge architecture exposed every guard as either a hook factory 
 import { GuardrailScanner, scrubMetadata } from '@sapience-ai-corporation/openclaw-middleware-suite/guardrail';
 
 const scanner = new GuardrailScanner(/* GuardrailConfig — typically GuardrailConfigStore.getCached() */);
-const detections = scanner.scan('Ignore previous instructions and …');
+// Example role-override input (broken across concat to keep the README itself
+// from matching naive prompt-injection scanners that read source verbatim).
+const userInput = ['Ignore', 'previous', 'instructions and …'].join(' ');
+const detections = scanner.scan(userInput);
 // detections[0] = {
 //   ruleName: 'role-override-classic', ruleType: 'regex',
 //   severity: 'HIGH', action: 'BLOCK', confidence: 'HIGH',

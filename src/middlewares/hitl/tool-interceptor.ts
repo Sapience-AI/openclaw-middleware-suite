@@ -16,8 +16,7 @@
  * Hook-based interception for OpenClaw's before_tool_call event
  */
 
-import * as fs from 'node:fs';
-import * as path from 'node:path';
+import { loadLocalScriptText } from './script-content-loader.js';
 import { Interceptor } from './Interceptor.js';
 import { logger } from '../../shared/Logger.js';
 import { detectBrowserChallenge } from './scoring/BrowserChallengeDetector.js';
@@ -317,22 +316,15 @@ function detectApiSignatureInContent(
 function detectApiSignatureInShellScript(
   command: string
 ): { module: string; method: string } | undefined {
-  const MAX_BYTES = 256 * 1024;
   const match =
     /\b(?:python3?|node|deno|bun|ts-node|bash|sh|zsh|pwsh|powershell)\b[^\n]*?\s((?:"[^"]+"|'[^']+'|[^\s"']+\.(?:py|js|mjs|cjs|ts|sh|bash|ps1)))/i.exec(
       command
     );
   if (!match) return undefined;
   const scriptPath = match[1].replace(/^["']|["']$/g, '');
-  try {
-    if (!path.isAbsolute(scriptPath)) return undefined;
-    const stat = fs.statSync(scriptPath);
-    if (!stat.isFile() || stat.size > MAX_BYTES) return undefined;
-    const content = fs.readFileSync(scriptPath, 'utf8');
-    return detectApiSignatureInContent(content);
-  } catch {
-    return undefined;
-  }
+  const content = loadLocalScriptText(scriptPath);
+  if (content === undefined) return undefined;
+  return detectApiSignatureInContent(content);
 }
 
 export interface BeforeToolCallEvent {

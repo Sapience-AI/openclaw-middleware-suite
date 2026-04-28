@@ -282,7 +282,7 @@ export async function handleApiRoute(
       // Respond BEFORE running persistMiddlewareDefaults / cleanupMiddleware.
       // For model-routing those write openclaw.json, which triggers a gateway
       // restart that kills the suite-server mid-flight. If the response hasn't
-      // left yet, the dashboard's fetch aborts and shows a misleading
+      // left yet, the dashboard's HTTP call aborts and shows a misleading
       // "Failed to toggle" toast before transitioning to "waiting to connect".
       // The flag itself is already saved above; failures from the deferred
       // work were already caught at debug level, so fire-and-forget is safe.

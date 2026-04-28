@@ -1,7 +1,7 @@
 name: Publish to ClawHub
 
 # Publishes this plugin to ClawHub (https://clawhub.ai), the OpenClaw skill /
-# package registry. Mirrors the trigger pattern in publish.yml so that one
+# package registry. Mirrors the trigger pattern in npm-publish.yml so that one
 # `gh release create vX.Y.Z` cuts both the npm publish and the ClawHub publish
 # atomically. `workflow_dispatch` is kept as a manual escape hatch and also
 # enables OIDC-based trusted publishing without a token.
@@ -25,7 +25,7 @@ on:
         default: false
 
 # HARDENED: deny all permissions by default; the publish job grants only
-# what it needs. Mirrors the convention in ci.yml and publish.yml.
+# what it needs. Mirrors the convention in ci.yml and npm-publish.yml.
 permissions: {}
 
 jobs:
