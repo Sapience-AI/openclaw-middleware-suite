@@ -60,10 +60,6 @@
     "test:coverage:report": "npm run build && c8 --reporter=text --reporter=text-summary --reporter=json-summary --reporter=lcov node --test test/**/*.test.mjs",
     "lint": "eslint src --ext .ts",
     "format": "prettier --write \"src/**/*.ts\"",
-    "metrics": "node scripts/adoption-metrics.mjs",
-    "metrics:json": "node scripts/adoption-metrics.mjs --json",
-    "metrics:csv": "node scripts/adoption-metrics.mjs --csv",
-    "dashboard": "node scripts/dashboard.mjs",
     "demo:destructive": "ts-node scripts/demo-destructive.ts",
     "prepublishOnly": "npm run build",
     "prepare": "husky || true"
