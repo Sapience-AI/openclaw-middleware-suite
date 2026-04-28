@@ -20,10 +20,12 @@
   --sai-gradient-hover: linear-gradient(135deg, #523D52, #1F2022);
   --sai-gradient-text: linear-gradient(135deg, #674C67, #333436);
 
-  /* Accent colors */
-  --sai-purple: #8E6FFB;
-  --sai-purple-deep: #804780;
-  --sai-purple-light: #A78BFA;
+  /* Accent colors — plum scale, derived from the brand gradient.
+     Token names retained as `--sai-purple*` for backwards-compat;
+     values are now plum tints. */
+  --sai-purple: #674C67;          /* Plum (gradient start) */
+  --sai-purple-deep: #523D52;     /* Deep plum (gradient-hover start) */
+  --sai-purple-light: #8B6F8B;    /* Plum tint */
 
   /* Status */
   --sai-success: #22c55e;

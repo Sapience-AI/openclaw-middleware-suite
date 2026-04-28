@@ -57,8 +57,8 @@ export function Chart({ title, data, options, height = 200 }: ChartProps) {
       series: [
         {},
         {
-          stroke: '#8E6FFB',
-          fill: 'rgba(142, 111, 251, 0.08)',
+          stroke: '#674C67',
+          fill: 'rgba(103, 76, 103, 0.08)',
           width: 2,
           label: 'Value',
         },
