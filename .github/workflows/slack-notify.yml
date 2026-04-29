@@ -30,13 +30,23 @@ on:
   # Docs: https://docs.github.com/en/actions/using-workflows/events-that-trigger-workflows#code_scanning_alert
   code_scanning_alert:
     types: [created, reopened]
+  # Manual smoke test — fire from Actions tab → "Run workflow" to verify
+  # Slack creds + channel access. Posts a synthetic test message.
+  workflow_dispatch:
+    inputs:
+      test_message:
+        description: 'Optional test message body (leave blank for default)'
+        required: false
+        default: ''
 
 permissions: {}
 
 jobs:
   notify:
     name: Post to Slack
-    runs-on: ubuntu-latest
+    # ARC scale-set routing: use bare scale-set name (no array).
+    # Sapience self-hosted runner pool — courtesy of @thomas (DevOps).
+    runs-on: sapience-default
     timeout-minutes: 5
     permissions:
       contents: read
@@ -74,9 +84,22 @@ jobs:
           ALERT_SEVERITY: ${{ github.event.alert.rule.security_severity_level }}
           ALERT_TOOL: ${{ github.event.alert.tool.name }}
           ALERT_FILE: ${{ github.event.alert.most_recent_instance.location.path }}
+
+          # Manual-test fields
+          TEST_MESSAGE: ${{ inputs.test_message }}
+          ACTOR: ${{ github.actor }}
         run: |
           set -euo pipefail
           case "$EVENT_NAME" in
+            workflow_dispatch)
+              MSG="${TEST_MESSAGE:-Slack notifications wired up correctly. This is a synthetic smoke test from the Actions tab.}"
+              HEADER=":white_check_mark: *${REPO_FULL}* — Slack notification smoke test"
+              BODY=$(jq -n \
+                --arg title "$MSG" \
+                --arg url "${REPO_URL}/actions" \
+                --arg author "$ACTOR" \
+                '{title: $title, url: $url, author: $author}')
+              ;;
             pull_request)
               EMOJI=":git-pull-request:"
               [ "$PR_DRAFT" = "true" ] && EMOJI=":construction:"
