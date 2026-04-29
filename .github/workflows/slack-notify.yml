@@ -26,10 +26,11 @@ on:
     types: [opened, reopened, ready_for_review]
   issues:
     types: [opened, reopened]
-  # Fires when a new code-scanning alert is created (CodeQL, third-party SAST)
-  # Docs: https://docs.github.com/en/actions/using-workflows/events-that-trigger-workflows#code_scanning_alert
-  code_scanning_alert:
-    types: [created, reopened]
+  # NOTE: GitHub's `code_scanning_alert` workflow trigger is currently
+  # unsupported by the Actions parser on this repo. For security-alert
+  # → Slack notifications, use the GitHub Slack app's `/github subscribe`
+  # command in the channel with the `security_alert` filter, or wire a
+  # repo webhook to a Slack incoming webhook URL.
   # Manual smoke test — fire from Actions tab → "Run workflow" to verify
   # Slack creds + channel access. Posts a synthetic test message.
   workflow_dispatch:
@@ -119,22 +120,6 @@ jobs:
                 --arg author "$ISSUE_AUTHOR" \
                 --argjson labels "$ISSUE_LABELS" \
                 '{title: $title, url: $url, author: $author, labels: ($labels | map(.name) | join(", "))}')
-              ;;
-            code_scanning_alert)
-              # Map severity → emoji
-              case "$ALERT_SEVERITY" in
-                critical) EMOJI=":rotating_light:" ;;
-                high)     EMOJI=":warning:" ;;
-                medium)   EMOJI=":large_yellow_circle:" ;;
-                *)        EMOJI=":information_source:" ;;
-              esac
-              HEADER="${EMOJI} New ${ALERT_TOOL} alert in *${REPO_FULL}*"
-              BODY=$(jq -n \
-                --arg title "${ALERT_RULE_ID}: ${ALERT_RULE_DESC}" \
-                --arg url "$ALERT_URL" \
-                --arg severity "${ALERT_SEVERITY:-unknown}" \
-                --arg file "$ALERT_FILE" \
-                '{title: $title, url: $url, severity: $severity, file: $file}')
               ;;
             *)
               echo "Unsupported event: $EVENT_NAME"
