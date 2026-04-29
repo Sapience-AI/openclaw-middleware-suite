@@ -94,7 +94,7 @@ jobs:
           case "$EVENT_NAME" in
             workflow_dispatch)
               MSG="${TEST_MESSAGE:-Slack notifications wired up correctly. This is a synthetic smoke test from the Actions tab.}"
-              HEADER=":white_check_mark: *${REPO_FULL}* — Slack notification smoke test"
+              HEADER="✅ *${REPO_FULL}* — Slack notification smoke test"
               BODY=$(jq -n \
                 --arg title "$MSG" \
                 --arg url "${REPO_URL}/actions" \
@@ -102,9 +102,13 @@ jobs:
                 '{title: $title, url: $url, author: $author}')
               ;;
             pull_request)
-              EMOJI=":git-pull-request:"
-              [ "$PR_DRAFT" = "true" ] && EMOJI=":construction:"
-              HEADER="${EMOJI} New PR in *${REPO_FULL}*"
+              EMOJI="🔀"
+              ACTION_LABEL="opened"
+              if [ "$PR_DRAFT" = "true" ]; then
+                EMOJI="🚧"
+                ACTION_LABEL="opened (draft)"
+              fi
+              HEADER="${EMOJI} Pull request ${ACTION_LABEL} in *${REPO_FULL}*"
               BODY=$(jq -n \
                 --arg title "#${PR_NUMBER} ${PR_TITLE}" \
                 --arg url "$PR_URL" \
@@ -113,7 +117,7 @@ jobs:
                 '{title: $title, url: $url, author: $author, branch: $branch}')
               ;;
             issues)
-              HEADER=":bug: New issue in *${REPO_FULL}*"
+              HEADER="📝 Issue opened in *${REPO_FULL}*"
               BODY=$(jq -n \
                 --arg title "#${ISSUE_NUMBER} ${ISSUE_TITLE}" \
                 --arg url "$ISSUE_URL" \
