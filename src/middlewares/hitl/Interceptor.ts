@@ -53,7 +53,7 @@ function matchesGlob(pattern: string, str: string): boolean {
 
   /* eslint-disable no-control-regex -- \x00 used as temporary placeholder during glob→regex conversion */
   const regex = pat
-    .replace(/[.+^${}()|[\]]/g, '\\$&') // escape regex specials
+    .replace(/[.+^${}()|[\]\\]/g, '\\$&') // escape regex specials (incl. backslash)
     .replace(/\*\*/g, '\x00') // placeholder for **
     .replace(/\*/g, '[^/]*') // * → any non-slash chars
     .replace(/\?/g, '[^/]') // ? → single non-slash char
