@@ -121,9 +121,24 @@ export function checkOverrides(
 }
 
 /**
- * Post-scoring override: if the request requires structured output
- * (response_format set, or JSON/schema keywords in the system prompt),
- * floor the tier to at least the configured minimum.
+ * Post-scoring override: if the caller has explicitly requested structured
+ * output via `response_format`, floor the tier to at least the configured
+ * minimum (`structuredOutputMinTier`).
+ *
+ * Why only `response_format` and not "json/schema/structured" keywords in
+ * the system prompt: the scoring pipeline deliberately excludes system /
+ * developer / custom roles via `extractText` (text-extractor.ts:42-44) so
+ * scaffolding doesn't pollute routing. This override previously walked
+ * past that filter to inspect system messages with a regex, which on
+ * OpenClaw fired on essentially every chat call — bootstrap files
+ * (SOUL.md, USER.md, tool descriptions) routinely mention "json",
+ * "schema", or "structured" in unrelated contexts. Net effect was that
+ * simple chat consistently landed STANDARD via `structured_output`.
+ *
+ * `response_format` is the unambiguous API-level signal that the caller
+ * needs JSON output — that stays as the floor trigger. Genuine structured-
+ * output usage still fires the floor; OpenClaw chat (no response_format
+ * ever set) does not.
  *
  * Ported from ClawRouter's structuredOutputMinTier override.
  */
@@ -135,22 +150,9 @@ export function applyStructuredOutputFloor(
   const minTier = config.overrides.structuredOutputMinTier;
   if (!minTier) return result;
 
-  // Detect structured output: explicit response_format or JSON/schema in system prompt
-  const hasResponseFormat = body.response_format != null && body.response_format !== undefined;
-
-  let hasStructuredSystemPrompt = false;
-  if (Array.isArray(body.messages)) {
-    for (const msg of body.messages as Array<{ role?: string; content?: string }>) {
-      if ((msg.role === 'system' || msg.role === 'developer') && typeof msg.content === 'string') {
-        if (/json|structured|schema/i.test(msg.content)) {
-          hasStructuredSystemPrompt = true;
-          break;
-        }
-      }
-    }
-  }
-
-  if (!hasResponseFormat && !hasStructuredSystemPrompt) return result;
+  // Only fire on explicit response_format. The system-prompt keyword
+  // heuristic was removed — see the file-top doc for the rationale.
+  if (body.response_format == null) return result;
 
   const currentIdx = TIER_ORDER.indexOf(result.tier);
   const minIdx = TIER_ORDER.indexOf(minTier);
