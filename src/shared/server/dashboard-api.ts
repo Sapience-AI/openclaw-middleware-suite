@@ -789,9 +789,19 @@ export function handleSseRoute(req: http.IncomingMessage, res: http.ServerRespon
   const POLL_INTERVAL = 1000; // 1 second
 
   const onFileChange = (): void => {
+    // Open first, then fstat the fd — atomic w.r.t. the file at open time.
+    // Eliminates the TOCTOU race between exists/stat and openSync
+    // (CodeQL js/file-system-race).
+    let fd: number | undefined;
     try {
-      if (!fs.existsSync(filePath)) return;
-      const stat = fs.statSync(filePath);
+      try {
+        fd = fs.openSync(filePath, 'r');
+      } catch (err) {
+        // ENOENT etc. — file gone; nothing to do this tick.
+        if ((err as NodeJS.ErrnoException).code === 'ENOENT') return;
+        throw err;
+      }
+      const stat = fs.fstatSync(fd);
       if (stat.size <= lastSize) {
         // File was truncated or unchanged
         if (stat.size < lastSize) lastSize = 0;
@@ -799,10 +809,8 @@ export function handleSseRoute(req: http.IncomingMessage, res: http.ServerRespon
       }
 
       // Read only the new bytes
-      const fd = fs.openSync(filePath, 'r');
       const newBytes = Buffer.alloc(stat.size - lastSize);
       fs.readSync(fd, newBytes, 0, newBytes.length, lastSize);
-      fs.closeSync(fd);
       lastSize = stat.size;
 
       const newContent = newBytes.toString('utf-8');
@@ -838,6 +846,14 @@ export function handleSseRoute(req: http.IncomingMessage, res: http.ServerRespon
       }
     } catch (err) {
       logger.debug('[sse] Error reading log file', { source, error: err });
+    } finally {
+      if (fd !== undefined) {
+        try {
+          fs.closeSync(fd);
+        } catch {
+          /* ignore */
+        }
+      }
     }
   };
 
