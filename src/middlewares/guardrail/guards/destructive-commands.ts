@@ -48,7 +48,9 @@ const BUILTIN_PATTERNS: DestructivePattern[] = [
   // ── File system destruction ────────────────────
   {
     name: 'rm_recursive_root',
-    pattern: /rm\s+(?:-[a-zA-Z]*[rf][a-zA-Z]*\s+)*(?:\/|~\/?\s|"\/|'\/)[\s;|&]?/i,
+    // Bounded quantifiers prevent polynomial/exponential ReDoS
+    // (CodeQL js/redos). 16 chars covers any realistic flag bundle.
+    pattern: /rm\s+(?:-[a-zA-Z]{0,16}[rf][a-zA-Z]{0,16}\s+){0,8}(?:\/|~\/?\s|"\/|'\/)[\s;|&]?/i,
     description: 'rm -rf / or home directory',
     severity: 'CRITICAL',
   },
