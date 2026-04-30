@@ -28,13 +28,15 @@ const origLog = console.log;
 const capture = (fn) => {
   const lines = [];
   console.log = (...args) => lines.push(args.join(' '));
-  return Promise.resolve(fn()).then(() => {
-    console.log = origLog;
-    return lines.join('\n');
-  }).catch((err) => {
-    console.log = origLog;
-    throw err;
-  });
+  return Promise.resolve(fn())
+    .then(() => {
+      console.log = origLog;
+      return lines.join('\n');
+    })
+    .catch((err) => {
+      console.log = origLog;
+      throw err;
+    });
 };
 
 test('guardrail status command prints state', async () => {
@@ -96,19 +98,23 @@ test('guardrail reset restores defaults', async () => {
 });
 
 test('guardrail rule-add and rule-remove', async () => {
-  await capture(() => ruleAdd.guardrailRuleAddCommand('test_rule', 'suspicious', {
-    pattern: 'foo',
-    severity: 'high',
-    action: 'BLOCK',
-    description: 'test',
-  }));
+  await capture(() =>
+    ruleAdd.guardrailRuleAddCommand('test_rule', 'suspicious', {
+      pattern: 'foo',
+      severity: 'high',
+      action: 'BLOCK',
+      description: 'test',
+    })
+  );
   let cfg = await ConfigStore.load();
   assert.ok(cfg.rules.suspicious.find((r) => r.name === 'test_rule'));
 
   // Update existing
-  await capture(() => ruleAdd.guardrailRuleAddCommand('test_rule', 'suspicious', {
-    pattern: 'bar',
-  }));
+  await capture(() =>
+    ruleAdd.guardrailRuleAddCommand('test_rule', 'suspicious', {
+      pattern: 'bar',
+    })
+  );
   cfg = await ConfigStore.load();
   assert.equal(cfg.rules.suspicious.find((r) => r.name === 'test_rule').pattern, 'bar');
 
@@ -119,7 +125,10 @@ test('guardrail rule-add and rule-remove', async () => {
   // Remove
   await capture(() => ruleRemove.guardrailRuleRemoveCommand('test_rule'));
   cfg = await ConfigStore.load();
-  assert.equal(cfg.rules.suspicious.find((r) => r.name === 'test_rule'), undefined);
+  assert.equal(
+    cfg.rules.suspicious.find((r) => r.name === 'test_rule'),
+    undefined
+  );
 
   // Remove nonexistent
   const out2 = await capture(() => ruleRemove.guardrailRuleRemoveCommand('nonexistent'));
@@ -137,7 +146,10 @@ test('guardrail rule-toggle by name', async () => {
 
   // explicit enable
   await capture(() => ruleToggle.guardrailRuleToggleCommand(rule.name, true));
-  assert.equal((await ConfigStore.load()).rules.promptInjection.find((r) => r.name === rule.name).enabled, true);
+  assert.equal(
+    (await ConfigStore.load()).rules.promptInjection.find((r) => r.name === rule.name).enabled,
+    true
+  );
 
   // missing rule
   const out = await capture(() => ruleToggle.guardrailRuleToggleCommand('nonexistent_rule'));
@@ -149,7 +161,10 @@ test('guardrail rule-action sets and validates', async () => {
   const rule = cfg.rules.promptInjection[0];
 
   await capture(() => ruleAction.guardrailRuleActionCommand(rule.name, 'WARN'));
-  assert.equal((await ConfigStore.load()).rules.promptInjection.find((r) => r.name === rule.name).action, 'WARN');
+  assert.equal(
+    (await ConfigStore.load()).rules.promptInjection.find((r) => r.name === rule.name).action,
+    'WARN'
+  );
 
   // Same value (no change)
   const out = await capture(() => ruleAction.guardrailRuleActionCommand(rule.name, 'WARN'));
@@ -207,14 +222,17 @@ test('guardrail egress CLI commands', async () => {
 
   await capture(() => egress.egressAllowCommand('example.com'));
   let cfg = await ConfigStore.load();
-  assert.ok(cfg.egressControl.allowedDomains.includes('example.com'));
+  // Use .some + strict equality (not .includes) so CodeQL does not
+  // misclassify this exact-match array-membership check as a URL
+  // substring sanitization (js/incomplete-url-substring-sanitization).
+  assert.ok(cfg.egressControl.allowedDomains.some((d) => d === 'example.com'));
 
   const out = await capture(() => egress.egressAllowCommand('example.com'));
   assert.ok(out.includes('already'));
 
   await capture(() => egress.egressRemoveCommand('example.com'));
   cfg = await ConfigStore.load();
-  assert.ok(!cfg.egressControl.allowedDomains.includes('example.com'));
+  assert.ok(!cfg.egressControl.allowedDomains.some((d) => d === 'example.com'));
 
   const out2 = await capture(() => egress.egressRemoveCommand('example.com'));
   assert.ok(out2.includes('not in the allowlist'));
