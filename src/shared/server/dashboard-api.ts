@@ -58,15 +58,20 @@ function json(res: http.ServerResponse, status: number, data: unknown): void {
   res.end(body);
 }
 
-function parseQuery(url: string): Record<string, string> {
+/**
+ * Parse a URL's query string into URLSearchParams.
+ *
+ * Returning URLSearchParams (rather than a plain object) avoids any dynamic
+ * property write keyed on user-controlled input — URLSearchParams stores
+ * entries internally with no prototype-chain interaction, which closes the
+ * CodeQL js/remote-property-injection finding at the source.
+ *
+ * Callers read individual fields via `.get(name)`.
+ */
+function parseQuery(url: string): URLSearchParams {
   const idx = url.indexOf('?');
-  if (idx === -1) return {};
-  const params: Record<string, string> = {};
-  for (const pair of url.slice(idx + 1).split('&')) {
-    const [k, v] = pair.split('=');
-    if (k) params[decodeURIComponent(k)] = decodeURIComponent(v || '');
-  }
-  return params;
+  if (idx === -1) return new URLSearchParams();
+  return new URLSearchParams(url.slice(idx + 1));
 }
 
 // ── JSONL / Pretty-JSON file reader ────────────────────────────────────────
@@ -325,7 +330,7 @@ export async function handleApiRoute(
       return;
     }
     if (urlPath === '/api/hitl/decisions' && method === 'GET') {
-      const limit = parseInt(query.limit || '100', 10);
+      const limit = parseInt(query.get('limit') || '100', 10);
       const records = await readAuditFile(HITL_DECISIONS_FILE, limit);
       json(res, 200, records);
       return;
@@ -406,7 +411,7 @@ export async function handleApiRoute(
       return;
     }
     if (urlPath === '/api/routing/audit' && method === 'GET') {
-      const limit = parseInt(query.limit || '100', 10);
+      const limit = parseInt(query.get('limit') || '100', 10);
       const records = await readAuditFile(MODEL_ROUTE_AUDIT_FILE, limit);
       json(res, 200, records);
       return;
@@ -455,7 +460,7 @@ export async function handleApiRoute(
       return;
     }
     if (urlPath === '/api/context-editing/audit' && method === 'GET') {
-      const limit = parseInt(query.limit || '100', 10);
+      const limit = parseInt(query.get('limit') || '100', 10);
       const records = await readAuditFile(CTX_EDIT_AUDIT_FILE, limit);
       json(res, 200, records);
       return;
@@ -486,7 +491,7 @@ export async function handleApiRoute(
       return;
     }
     if (urlPath === '/api/guardrail/audit' && method === 'GET') {
-      const limit = parseInt(query.limit || '100', 10);
+      const limit = parseInt(query.get('limit') || '100', 10);
       const records = await readAuditFile(GUARDRAIL_AUDIT_FILE, limit);
       json(res, 200, records);
       return;
@@ -550,7 +555,7 @@ export async function handleApiRoute(
       return;
     }
     if (urlPath === '/api/pii/audit' && method === 'GET') {
-      const limit = parseInt(query.limit || '100', 10);
+      const limit = parseInt(query.get('limit') || '100', 10);
       const records = await readAuditFile(PII_SANITIZER_AUDIT_FILE, limit);
       json(res, 200, records);
       return;
