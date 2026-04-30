@@ -299,10 +299,10 @@ function detectApiSignatureInContent(
     return { module: 'GoogleDrive', method: detectDriveApiMethod(lower) };
   }
   // Direct Gmail/Drive REST API calls (not via Maton gateway)
-  if (/gmail\.googleapis\.com|www\.googleapis\.com\/gmail/i.test(content)) {
+  if (/\bgmail\.googleapis\.com|\bwww\.googleapis\.com\/gmail/i.test(content)) {
     return { module: 'Gmail', method: detectGmailApiMethod(lower) };
   }
-  if (/www\.googleapis\.com\/drive|drive\.googleapis\.com/i.test(content)) {
+  if (/\bwww\.googleapis\.com\/drive|\bdrive\.googleapis\.com/i.test(content)) {
     return { module: 'GoogleDrive', method: detectDriveApiMethod(lower) };
   }
   return undefined;
