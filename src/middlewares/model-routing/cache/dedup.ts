@@ -47,8 +47,11 @@ function canonicalize(obj: unknown): unknown {
   if (obj === null || obj === undefined) return obj;
   if (Array.isArray(obj)) return obj.map(canonicalize);
   if (typeof obj === 'object') {
-    const sorted: Record<string, unknown> = {};
+    // Object.create(null) prevents prototype-pollution via attacker-controlled
+    // keys like __proto__ or constructor (CodeQL js/remote-property-injection).
+    const sorted: Record<string, unknown> = Object.create(null);
     for (const key of Object.keys(obj as Record<string, unknown>).sort()) {
+      if (key === '__proto__' || key === 'constructor' || key === 'prototype') continue;
       sorted[key] = canonicalize((obj as Record<string, unknown>)[key]);
     }
     return sorted;
@@ -66,8 +69,11 @@ function stripTimestamps(obj: unknown): unknown {
   }
   if (Array.isArray(obj)) return obj.map(stripTimestamps);
   if (obj !== null && typeof obj === 'object') {
-    const result: Record<string, unknown> = {};
+    // Object.create(null) prevents prototype-pollution via attacker-controlled
+    // keys like __proto__ or constructor (CodeQL js/remote-property-injection).
+    const result: Record<string, unknown> = Object.create(null);
     for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
+      if (key === '__proto__' || key === 'constructor' || key === 'prototype') continue;
       result[key] = stripTimestamps(value);
     }
     return result;

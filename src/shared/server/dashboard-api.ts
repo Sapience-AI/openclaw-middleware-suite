@@ -60,11 +60,16 @@ function json(res: http.ServerResponse, status: number, data: unknown): void {
 
 function parseQuery(url: string): Record<string, string> {
   const idx = url.indexOf('?');
-  if (idx === -1) return {};
-  const params: Record<string, string> = {};
+  if (idx === -1) return Object.create(null);
+  // Object.create(null) + key filter prevents prototype-pollution via
+  // attacker-controlled query keys (CodeQL js/remote-property-injection).
+  const params: Record<string, string> = Object.create(null);
   for (const pair of url.slice(idx + 1).split('&')) {
     const [k, v] = pair.split('=');
-    if (k) params[decodeURIComponent(k)] = decodeURIComponent(v || '');
+    if (!k) continue;
+    const key = decodeURIComponent(k);
+    if (key === '__proto__' || key === 'constructor' || key === 'prototype') continue;
+    params[key] = decodeURIComponent(v || '');
   }
   return params;
 }

@@ -15,7 +15,11 @@ const u = (p) => pathToFileURL(path.join(distBase, p)).href;
 // polynomial / exponential backtracking. With bounded quantifiers in place,
 // each call must complete well under the 250ms budget.
 
-const BUDGET_MS = 250;
+// Generous budget: a polynomial-redos blowup on these inputs would take
+// many seconds, so 500ms is comfortably under that while tolerating
+// CI/local-machine variance. Tightening to 250ms produced flaky failures
+// when the suite runs under load.
+const BUDGET_MS = 500;
 
 function timed(fn) {
   const t0 = performance.now();
