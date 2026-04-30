@@ -302,42 +302,43 @@ export function ModelRoutingPage(_props: { path?: string }) {
             </div>
           </div>
 
-          {/* Cost chart — daily totals are categorical buckets, so render as bars */}
+          {/* Cost chart — line chart (one point per day). Bar mode was
+              tried but produced visual artifacts with sparse data: with
+              only one day's data the single bar looked frozen as more
+              requests aggregated into the same daily bucket, and uPlot's
+              default point markers landed on top of the bars. */}
           <div class="page-section">
-            <Chart
-              title="Routing Cost (24h)"
-              data={chartData}
-              height={220}
-              bars
-            />
+            <Chart title="Routing Cost (24h)" data={chartData} height={220} />
           </div>
 
           {/* Cost source attribution + per-source budgets — surfaces the
-              chat / icc split written by CostTracker.record(). Budget bars
-              are hidden when no per-source threshold is configured. */}
-          {(todayBySource.chat || todayBySource.icc) && (
-            <div class="page-section">
-              <div class="page-section-title">Cost Sources Today</div>
-              <div class="grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                <SourceCostCard
-                  source="chat"
-                  label="Chat"
-                  description="User-facing turns + manual tier overrides."
-                  spend={todayBySource.chat || 0}
-                  requestCount={todayBySource.chatRequests || 0}
-                  budget={sourceBudgets.chat}
-                />
-                <SourceCostCard
-                  source="icc"
-                  label="ICC Compaction"
-                  description="Context Editing's compaction-extraction calls."
-                  spend={todayBySource.icc || 0}
-                  requestCount={todayBySource.iccRequests || 0}
-                  budget={sourceBudgets.icc}
-                />
-              </div>
+              chat / icc split written by CostTracker.record(). Always
+              rendered (even on fresh enable when both are 0) so the
+              section is discoverable from day one. */}
+          <div class="page-section">
+            <div class="page-section-title">Cost Sources Today</div>
+            <div
+              class="grid-2"
+              style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}
+            >
+              <SourceCostCard
+                source="chat"
+                label="Chat"
+                description="User-facing turns + manual tier overrides."
+                spend={todayBySource.chat || 0}
+                requestCount={todayBySource.chatRequests || 0}
+                budget={sourceBudgets.chat}
+              />
+              <SourceCostCard
+                source="icc"
+                label="ICC Compaction"
+                description="Context Editing's compaction-extraction calls."
+                spend={todayBySource.icc || 0}
+                requestCount={todayBySource.iccRequests || 0}
+                budget={sourceBudgets.icc}
+              />
             </div>
-          )}
+          </div>
 
           {/* Providers */}
           {providerList.length > 0 && (
@@ -394,9 +395,9 @@ export function ModelRoutingPage(_props: { path?: string }) {
           <div class="config-field">
             <div class="config-field-row">
               <div class="config-field-info">
-                <label class="config-field-label">Editing profile</label>
+                <label class="config-field-label">Routing profile</label>
                 <div class="config-field-desc">
-                  Pick which routing profile's tier mappings you want to edit.
+                  Pick which profile's tier mappings you want to edit.
                 </div>
               </div>
               <div class="config-field-control">
@@ -408,9 +409,9 @@ export function ModelRoutingPage(_props: { path?: string }) {
                     setEditingProfile((e.target as HTMLSelectElement).value as Profile)
                   }
                 >
-                  <option value="eco">Eco \u2014 Prefer cheaper models</option>
-                  <option value="premium">Premium \u2014 Prefer top-tier models</option>
-                  <option value="agentic">Agentic \u2014 Optimized for agent workloads</option>
+                  <option value="eco">Eco (Prefer cheaper models)</option>
+                  <option value="premium">Premium (Prefer top-tier models)</option>
+                  <option value="agentic">Agentic (Optimized for agent workloads)</option>
                 </select>
               </div>
             </div>

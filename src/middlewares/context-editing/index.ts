@@ -43,6 +43,7 @@ import {
 import { logger } from '../../shared/Logger.js';
 import { getOpenclawHome, getOpenclawDir } from '../../shared/env.js';
 import { isSessionStartupMessage } from '../../shared/session-detection.js';
+import { stripOpenClawEnvelope } from '../../shared/openclaw-envelope.js';
 import { TriggerEvaluator } from './TriggerEvaluator.js';
 import { ContextCurator } from './ContextCurator.js';
 import { SessionAdapter } from './SessionAdapter.js';
@@ -656,21 +657,18 @@ export class ContextEditingMiddleware implements Middleware {
    * Dedicated normalization helper for user text used only by ICC and audit.
    * Cleans the control-ui transport envelope so the middleware analyzes only
    * real user content.
+   *
+   * Delegates to the shared `stripOpenClawEnvelope` utility so the timestamp
+   * regex and the inbound-meta sentinel list stay in lock-step with what
+   * Model Routing's scorer also strips. The shared utility covers all six
+   * sentinel headers OpenClaw emits (Sender, Conversation info, Thread
+   * starter, Replied message, Forwarded message context, Chat history) —
+   * a strict superset of the two patterns this method previously handled
+   * inline.
    */
   private extractCleanedTextForICC(message: Record<string, unknown>): string {
-    let text = this.extractTextFromMessage(message);
-
-    // Remove the `Sender (untrusted metadata):` block including optional
-    // markdown code fences:  ```json\n{...}\n```
-    const senderMetaRegex =
-      /Sender \(untrusted metadata\):\s*(?:```json?\s*)?\{[\s\S]*?\}\s*(?:```\s*)?/;
-    text = text.replace(senderMetaRegex, '').trim();
-
-    // Remove leading `[Sat 2026-04-04 23:28 UTC]`-style timestamp envelopes
-    const timestampRegex = /^\[[A-Za-z]{3} \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC\]\s*/;
-    text = text.replace(timestampRegex, '').trim();
-
-    return text;
+    const raw = this.extractTextFromMessage(message);
+    return stripOpenClawEnvelope(raw);
   }
 
   // ---------------------------------------------------------------------------
