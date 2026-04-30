@@ -374,7 +374,9 @@ export function classifyDestructiveAction(
   }
 
   // Access control destructive operations
-  if (/revoke.*admin|delete.*user|disable.*sso|remove.*admin/.test(text)) {
+  // Bounded `.{0,80}` prevents polynomial ReDoS on long mismatching inputs
+  // (CodeQL js/polynomial-redos). 80 chars covers any realistic phrasing.
+  if (/revoke.{0,80}admin|delete.{0,80}user|disable.{0,80}sso|remove.{0,80}admin/.test(text)) {
     catastrophic = true;
     pushUnique(reasons, 'access_control_change');
   }

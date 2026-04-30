@@ -195,7 +195,10 @@ function extractHostname(urlOrHost: string): string | null {
  * Extract hostname from scp/rsync-style arguments (user@host:path).
  */
 function extractScpHostname(command: string): string | null {
-  const match = command.match(/(?:\w+@)?([a-zA-Z0-9.-]+):/);
+  // Bounded quantifiers prevent polynomial ReDoS on long inputs without
+  // a colon (CodeQL js/polynomial-redos). 64-char user, 253-char host
+  // matches RFC limits.
+  const match = command.match(/(?:\w{1,64}@)?([a-zA-Z0-9.-]{1,253}):/);
   if (match) return match[1];
   return null;
 }
