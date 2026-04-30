@@ -179,6 +179,25 @@ test('tool-interceptor', async (t) => {
     assert.equal(interceptor.calls[0].methodName, 'delete');
   });
 
+  await t.test('does not match look-alike hosts (anchored regex)', async () => {
+    const interceptor = makeMockInterceptor();
+    const hook = createToolCallHook(interceptor);
+    await hook(
+      {
+        toolName: 'write',
+        params: {
+          path: '/tmp/script.py',
+          content: 'https://notgmail.googleapis.com/foo and https://evildrive.googleapis.com/bar',
+        },
+      },
+      { sessionKey: 's1', toolName: 'write' }
+    );
+    // Look-alike hosts must not be classified as Gmail/GoogleDrive.
+    const moduleNames = interceptor.calls.map((c) => c.moduleName);
+    assert.ok(!moduleNames.includes('Gmail'));
+    assert.ok(!moduleNames.includes('GoogleDrive'));
+  });
+
   await t.test('blocks when interceptor.evaluate throws', async () => {
     const interceptor = makeMockInterceptor({ shouldThrow: true, throwMessage: 'policy-deny' });
     const hook = createToolCallHook(interceptor);
