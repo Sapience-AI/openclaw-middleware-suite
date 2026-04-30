@@ -60,11 +60,13 @@ export class RoutingAuditLog {
    * Clear the audit log.
    */
   clear(): void {
+    // No existsSync precheck — attempt the truncate and tolerate ENOENT.
+    // Removing the precheck eliminates the TOCTOU window
+    // (CodeQL js/file-system-race).
     try {
-      if (fs.existsSync(AUDIT_FILE)) {
-        fs.writeFileSync(AUDIT_FILE, '');
-      }
+      fs.writeFileSync(AUDIT_FILE, '');
     } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return;
       logger.error('[model-routing] Failed to clear audit log', { error: err });
     }
   }

@@ -58,9 +58,15 @@ test('OutputScrubber: ConfigStore save persists outputScrubber', async () => {
 test('OutputScrubber: ConfigStore validation drops invalid regex patterns', async () => {
   // Write directly into the unified store under the "guardrail" key
   fs.mkdirSync(paths.SUITE_HOME, { recursive: true });
-  const store = fs.existsSync(paths.STORE_FILE)
-    ? JSON.parse(fs.readFileSync(paths.STORE_FILE, 'utf-8'))
-    : {};
+  // No existsSync precheck — read directly and tolerate ENOENT
+  // (CodeQL js/file-system-race).
+  let store;
+  try {
+    store = JSON.parse(fs.readFileSync(paths.STORE_FILE, 'utf-8'));
+  } catch (err) {
+    if (err.code !== 'ENOENT') throw err;
+    store = {};
+  }
   store.guardrail = store.guardrail || {};
   store.guardrail.outputScrubber = {
     enabled: true,
