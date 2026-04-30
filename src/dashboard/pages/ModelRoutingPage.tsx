@@ -391,8 +391,15 @@ export function ModelRoutingPage(_props: { path?: string }) {
               aligned) so the visual rhythm of the page stays consistent.
               The selector lives outside <ConfigForm> so changing it remounts
               the form via `key={editingProfile}` and the tier dropdowns
-              re-seed from the new profile's saved values. */}
-          <div class="config-field">
+              re-seed from the new profile's saved values.
+
+              `marginBottom: 12px` adds breathing room between this field's
+              bottom border and the first nested tier dropdown. The CSS
+              `.config-field:has(+ .config-field--nested)` merge rule that
+              normally collapses parent + child can't help here because the
+              tier fields live inside a `.config-form` wrapper, breaking
+              the adjacent-sibling relationship the selector needs. */}
+          <div class="config-field" style={{ marginBottom: '12px' }}>
             <div class="config-field-row">
               <div class="config-field-info">
                 <label class="config-field-label">Routing profile</label>

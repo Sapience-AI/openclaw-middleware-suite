@@ -91,11 +91,29 @@ test('scoreRequest: prelude + reset prompt (full /new <text> composition) → SI
   assert.equal(result.reason, 'session_startup');
 });
 
-test('scoreRequest: session_startup override beats tool floor (tools present must NOT escalate to STANDARD)', () => {
+test('scoreRequest: session_startup override beats tool_floor even when prior tool calls exist', () => {
   // Without the early-return at scorer.ts for reason === "session_startup",
-  // hasTools would push the result to STANDARD via tool_floor on every /new <text>.
+  // tool_floor would push the result to STANDARD because the messages[]
+  // contains real tool-call evidence (assistant.tool_calls + role: 'tool').
+  // The point of the override is that synthetic /new turns are SIMPLE
+  // regardless of what happened earlier in the conversation.
   const body = {
-    messages: [{ role: 'user', content: RESET_PROMPT_V_2026_4_27_BASE }],
+    messages: [
+      { role: 'user', content: 'what is the weather in Paris?' },
+      {
+        role: 'assistant',
+        content: '',
+        tool_calls: [
+          {
+            id: 'call_1',
+            type: 'function',
+            function: { name: 'get_weather', arguments: '{"city":"Paris"}' },
+          },
+        ],
+      },
+      { role: 'tool', tool_call_id: 'call_1', content: '{"temp":18}' },
+      { role: 'user', content: RESET_PROMPT_V_2026_4_27_BASE },
+    ],
     tools: [{ type: 'function', function: { name: 'get_weather' } }],
   };
   const result = scoreRequest({ body }, DEFAULT_SCORING_CONFIG);

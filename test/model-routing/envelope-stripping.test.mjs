@@ -129,17 +129,19 @@ test('scoreRequest: complex prompt with envelope still trips reasoning_override'
   assert.equal(result.reason, 'reasoning_override');
 });
 
-test('scoreRequest: tool_floor still applies to short envelope-stripped messages (when tools present)', () => {
-  // The envelope fix restores SIMPLE eligibility, but tool_floor is unchanged
-  // by this PR — a short message with tools available still floors to STANDARD.
-  // (Configurable tool_floor is a separate, future change.)
+test('scoreRequest: short envelope-stripped message with tools listed but never called → SIMPLE (no floor)', () => {
+  // Twin invariant: the envelope fix restores SIMPLE eligibility for
+  // truly-short messages, AND the tool-floor narrowing means simple chat
+  // is no longer floored just because OpenClaw lists its tool inventory
+  // on every turn. Both fixes need to land for "hello" to actually
+  // route SIMPLE.
   const body = {
     messages: v_2026_4_27_messages('hello'),
     tools: [{ type: 'function', function: { name: 'get_weather' } }],
   };
   const result = scoreRequest({ body }, DEFAULT_SCORING_CONFIG);
-  assert.equal(result.tier, 'STANDARD');
-  assert.equal(result.reason, 'tool_floor');
+  assert.equal(result.tier, 'SIMPLE');
+  assert.equal(result.reason, 'short_message');
 });
 
 test('extractText: includeSystem=true is gated for the ROLE filter only — strip still runs', () => {

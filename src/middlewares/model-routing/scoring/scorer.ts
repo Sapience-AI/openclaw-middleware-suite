@@ -85,7 +85,7 @@ export function scoreRequest(
     if (override.reason === 'session_startup' || override.reason === 'icc_extraction') {
       return override;
     }
-    let result = applyToolFloor(override, input.body.tools, input.body.tool_choice);
+    let result = applyToolFloor(override, input.body);
     result = applyStructuredOutputFloor(result, input.body as any, config);
     return result;
   }
@@ -153,7 +153,7 @@ export function scoreRequest(
   }
 
   // ── Tool floor ───────────────────────────────────────────────────────────
-  result = applyToolFloor(result, input.body.tools, input.body.tool_choice);
+  result = applyToolFloor(result, input.body);
 
   // ── Structured output floor ─────────────────────────────────────────────
   result = applyStructuredOutputFloor(result, input.body as any, config);

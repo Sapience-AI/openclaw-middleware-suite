@@ -58,11 +58,28 @@ test('scoreRequest: ICC override beats reasoning_override (formal-logic keywords
   assert.equal(result.reason, 'icc_extraction');
 });
 
-test('scoreRequest: ICC override beats tool_floor (tools present must NOT escalate to STANDARD)', () => {
-  // disableTools: true is set in CE's runEmbeddedPiAgent call, but if a future
-  // openclaw build forwards tool definitions anyway, the floor must not run.
+test('scoreRequest: ICC override beats tool_floor even when messages contain real tool-call evidence', () => {
+  // disableTools: true is set in CE's runEmbeddedPiAgent call, but if a
+  // future openclaw build forwards tool definitions AND tool-call history
+  // anyway (e.g., compaction triggered mid-conversation after tool use),
+  // the icc_extraction override must still short-circuit to SIMPLE.
   const body = {
-    messages: [{ role: 'user', content: FAKE_ICC_PROMPT }],
+    messages: [
+      { role: 'user', content: 'what is the weather?' },
+      {
+        role: 'assistant',
+        content: '',
+        tool_calls: [
+          {
+            id: 'call_1',
+            type: 'function',
+            function: { name: 'get_weather', arguments: '{}' },
+          },
+        ],
+      },
+      { role: 'tool', tool_call_id: 'call_1', content: '{"temp":18}' },
+      { role: 'user', content: FAKE_ICC_PROMPT },
+    ],
     tools: [{ type: 'function', function: { name: 'get_weather' } }],
   };
   const result = scoreRequest({ body }, DEFAULT_SCORING_CONFIG);

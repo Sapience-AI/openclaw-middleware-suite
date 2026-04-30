@@ -186,9 +186,41 @@ test('scoreRequest: "waterproof proof theorem" → formalLogic dim has 2 matches
   assert.ok(formalLogicDim === undefined || formalLogicDim.score >= 0);
 });
 
-test('scoreRequest: tool floor — SIMPLE request with tools → STANDARD', () => {
+test('scoreRequest: tool floor does NOT fire when tools are merely listed (no agent tool-call evidence)', () => {
+  // OpenClaw sends its full tool inventory on every chat turn. If `hasTools`
+  // alone triggered the floor, every chat turn would be STANDARD regardless
+  // of whether the agent ever used a tool. The floor is now scoped to
+  // post-tool-call LLM invocations.
   const body = {
     messages: [{ role: 'user', content: 'hi' }],
+    tools: [{ type: 'function', function: { name: 'get_weather' } }],
+  };
+  const result = scoreRequest({ body }, DEFAULT_SCORING_CONFIG);
+  assert.equal(result.tier, 'SIMPLE');
+  assert.notEqual(result.reason, 'tool_floor');
+});
+
+test('scoreRequest: tool floor fires when prior tool-call evidence exists, even with a short follow-up', () => {
+  // The user's follow-up `"thanks"` would normally short_message → SIMPLE,
+  // but the conversation history contains assistant.tool_calls + role=tool,
+  // so the next LLM turn needs to handle tool I/O. Floor to STANDARD.
+  const body = {
+    messages: [
+      { role: 'user', content: 'what is the weather?' },
+      {
+        role: 'assistant',
+        content: '',
+        tool_calls: [
+          {
+            id: 'call_abc',
+            type: 'function',
+            function: { name: 'get_weather', arguments: '{}' },
+          },
+        ],
+      },
+      { role: 'tool', tool_call_id: 'call_abc', content: '{"temp":18}' },
+      { role: 'user', content: 'thanks' },
+    ],
     tools: [{ type: 'function', function: { name: 'get_weather' } }],
   };
   const result = scoreRequest({ body }, DEFAULT_SCORING_CONFIG);

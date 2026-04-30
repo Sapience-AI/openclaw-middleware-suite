@@ -167,18 +167,42 @@ export function applyStructuredOutputFloor(
 }
 
 /**
- * Post-scoring override: if tools are present and tool_choice != 'none',
- * floor the tier to at least STANDARD.
+ * Post-scoring override: floor the tier to at least STANDARD when the
+ * request shows evidence the agent has *actually* called tools in this
+ * conversation — not merely that tools are listed as available.
+ *
+ * The distinction matters because OpenClaw sends its full tool inventory
+ * on every chat turn. Treating "tools listed" as the floor trigger fires
+ * on every turn regardless of whether the agent uses any, defeating
+ * SIMPLE-tier routing for normal chat.
+ *
+ * Tool-usage evidence detected in `body.messages`:
+ *   - OpenAI / openai-compatible:
+ *       - any `role: 'tool'` message (a tool's response being fed back)
+ *       - any `role: 'assistant'` message with non-empty `tool_calls[]`
+ *   - Anthropic:
+ *       - any content block with `type: 'tool_use'` (assistant called a tool)
+ *       - any content block with `type: 'tool_result'` (tool output being
+ *         fed back)
+ *
+ * The floor is bypassed entirely when `tool_choice === 'none'` (caller
+ * has explicitly disabled tool use for this request).
  */
 export function applyToolFloor(
   result: ScoringResult,
-  tools?: unknown[],
-  toolChoice?: unknown
+  body: { tools?: unknown[]; tool_choice?: unknown; messages?: unknown[] }
 ): ScoringResult {
-  if (toolChoice === 'none') return result;
+  if (body.tool_choice === 'none') return result;
 
-  const hasTools = Array.isArray(tools) && tools.length > 0;
+  // No tools listed → trivially no floor (the conversation can't have
+  // tool-call evidence either, since there were no tools to call).
+  const hasTools = Array.isArray(body.tools) && body.tools.length > 0;
   if (!hasTools) return result;
+
+  // Tools listed but never used → don't floor. The scorer's tier wins.
+  if (!Array.isArray(body.messages) || !hasToolCallEvidence(body.messages)) {
+    return result;
+  }
 
   const currentIdx = TIER_ORDER.indexOf(result.tier);
   const standardIdx = TIER_ORDER.indexOf('STANDARD');
@@ -191,4 +215,43 @@ export function applyToolFloor(
     };
   }
   return result;
+}
+
+/**
+ * Detect evidence in a chat-completion `messages[]` array that the agent
+ * has invoked tools in this conversation. See `applyToolFloor` for the
+ * full list of detected shapes.
+ *
+ * Returns on the first match — typical conversations either have many
+ * matches or none, so this is cheap in both extremes.
+ */
+function hasToolCallEvidence(messages: unknown[]): boolean {
+  for (const msg of messages) {
+    if (!msg || typeof msg !== 'object') continue;
+    const m = msg as Record<string, unknown>;
+
+    // OpenAI: a `role: 'tool'` message is a tool result being sent back
+    // for synthesis — definitive evidence the agent already called a tool.
+    if (m.role === 'tool') return true;
+
+    // OpenAI: assistant message that emitted tool_calls. The next LLM
+    // turn after this needs to synthesize their results.
+    if (
+      m.role === 'assistant' &&
+      Array.isArray(m.tool_calls) &&
+      (m.tool_calls as unknown[]).length > 0
+    ) {
+      return true;
+    }
+
+    // Anthropic: tool_use / tool_result content blocks.
+    if (Array.isArray(m.content)) {
+      for (const block of m.content as unknown[]) {
+        if (!block || typeof block !== 'object') continue;
+        const t = (block as Record<string, unknown>).type;
+        if (t === 'tool_use' || t === 'tool_result') return true;
+      }
+    }
+  }
+  return false;
 }
