@@ -389,15 +389,12 @@ export async function handleApiRoute(
       const { ModelRoutingPolicyStore } = await lazyImport(
         '../../middlewares/model-routing/storage/ModelRoutingPolicyStore.js'
       );
-      const { isValidProfile } = await lazyImport(
-        '../../middlewares/model-routing/selection/profiles.js'
-      );
       const body = JSON.parse(await readBody(req)) as Record<string, unknown>;
 
       // Tier writes are scoped to a single profile via `body.profile`. The
       // dashboard editor surfaces one profile's tiers at a time and submits
       // only that slot, leaving the other profiles' configs untouched.
-      const profile = typeof body.profile === 'string' ? body.profile : undefined;
+      const rawProfile = typeof body.profile === 'string' ? body.profile : undefined;
       const incomingTiers = body.tierOverrides;
 
       const update: Record<string, unknown> = {};
@@ -415,7 +412,17 @@ export async function handleApiRoute(
       }
 
       if (incomingTiers && typeof incomingTiers === 'object') {
-        if (!profile || !isValidProfile(profile)) {
+        // Hard allowlist before using `profile` as an object key. Explicit
+        // string comparisons + literal assignments narrow `safeProfile` to
+        // a finite union, giving CodeQL the dataflow proof it needs to clear
+        // the `js/prototype-polluting-assignment` alert (a runtime
+        // `isValidProfile()` predicate, while functionally equivalent, is
+        // not recognized as a sanitizer by the static analyzer).
+        let safeProfile: 'eco' | 'premium' | 'agentic';
+        if (rawProfile === 'eco') safeProfile = 'eco';
+        else if (rawProfile === 'premium') safeProfile = 'premium';
+        else if (rawProfile === 'agentic') safeProfile = 'agentic';
+        else {
           json(res, 400, {
             error: 'tierOverrides requires `profile` field set to eco|premium|agentic',
           });
@@ -425,7 +432,7 @@ export async function handleApiRoute(
         const existingByProfile = current.tierOverridesByProfile ?? {};
         update.tierOverridesByProfile = {
           ...existingByProfile,
-          [profile]: incomingTiers,
+          [safeProfile]: incomingTiers,
         };
       }
 

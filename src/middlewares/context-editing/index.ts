@@ -712,10 +712,7 @@ export class ContextEditingMiddleware implements Middleware {
     let lastCompactionSummaryIndex = -1;
     for (let i = 0; i < rawMessages.length; i++) {
       const m = rawMessages[i] as Record<string, unknown>;
-      if (
-        m.role === 'user' &&
-        isSessionStartupMessage(this.extractTextFromMessage(m))
-      ) {
+      if (m.role === 'user' && isSessionStartupMessage(this.extractTextFromMessage(m))) {
         let j = i + 1;
         while (
           j < rawMessages.length &&

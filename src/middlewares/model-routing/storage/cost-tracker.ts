@@ -45,8 +45,13 @@ export interface SourceBudget {
   dailyCritical?: number;
 }
 
-/** Known sources for cost attribution. Open string union for future caller kinds. */
-export type CostSource = 'chat' | 'icc' | (string & {});
+/**
+ * Known sources for cost attribution. The `string & NonNullable<unknown>`
+ * branch keeps the union open to future caller kinds while preserving
+ * editor autocomplete for the known `'chat'` / `'icc'` literals.
+ * (`string & {}` would do the same but trips eslint `@typescript-eslint/ban-types`.)
+ */
+export type CostSource = 'chat' | 'icc' | (string & NonNullable<unknown>);
 
 export interface CostAlertConfig {
   /** Whether cost tracking is enabled */
@@ -444,11 +449,7 @@ export class CostTracker {
    * and once at the critical threshold. Independent of the aggregate alert
    * — both can fire on the same call when totals cross both lines.
    */
-  private checkSourceAlerts(
-    daily: DailyCost,
-    source: CostSource,
-    entry: SourceCostEntry,
-  ): void {
+  private checkSourceAlerts(daily: DailyCost, source: CostSource, entry: SourceCostEntry): void {
     if (!this.config.enabled) return;
     const budget = this.config.budgets?.[source];
     if (!budget) return;
@@ -462,7 +463,7 @@ export class CostTracker {
       logger.warn(
         `[model-routing] CRITICAL [${source}]: Daily spend $${entry.costUsd.toFixed(2)} ` +
           `exceeds ${source} critical threshold $${budget.dailyCritical.toFixed(2)} ` +
-          `(${entry.requestCount} requests on ${daily.date})`,
+          `(${entry.requestCount} requests on ${daily.date})`
       );
     } else if (
       typeof budget.dailyWarn === 'number' &&
@@ -473,7 +474,7 @@ export class CostTracker {
       logger.warn(
         `[model-routing] WARNING [${source}]: Daily spend $${entry.costUsd.toFixed(2)} ` +
           `exceeds ${source} warning threshold $${budget.dailyWarn.toFixed(2)} ` +
-          `(${entry.requestCount} requests on ${daily.date})`,
+          `(${entry.requestCount} requests on ${daily.date})`
       );
     }
   }

@@ -151,7 +151,7 @@ function composeExtractionPrompt(
   instructions: string,
   schema: string,
   transcript: string,
-  options: { includeMarker: boolean } = { includeMarker: false },
+  options: { includeMarker: boolean } = { includeMarker: false }
 ): string {
   // ICC_EXTRACTION_MARKER is a sentinel for Model Routing's scoring override:
   // when the call is going through MR (target provider = "sai-router"), the
@@ -477,7 +477,7 @@ export class ContextCurator {
             LLM_EXTRACTION_SYSTEM_PROMPT,
             DEFAULT_ICC_SCHEMA_JSON,
             transcript,
-            { includeMarker: targetUsesMR(target) },
+            { includeMarker: targetUsesMR(target) }
           );
 
           diag('extractViaLLM: calling runEmbeddedPiAgent', {

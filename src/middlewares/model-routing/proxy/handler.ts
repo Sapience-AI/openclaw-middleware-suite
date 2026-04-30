@@ -583,8 +583,7 @@ async function processRequest(
   // Cost ledger and budget alerts split spend by caller kind. ICC compaction
   // calls land under `'icc'`; everything else (real user chat turns, manual
   // tier overrides, momentum/pinning hits) lands under `'chat'`.
-  const costSource: 'chat' | 'icc' =
-    scoringResult.reason === 'icc_extraction' ? 'icc' : 'chat';
+  const costSource: 'chat' | 'icc' = scoringResult.reason === 'icc_extraction' ? 'icc' : 'chat';
 
   // ── Strip ICC marker before forwarding upstream ────────────────────────
   // The marker was a signal for our scoring override only; the upstream

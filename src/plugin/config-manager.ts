@@ -172,10 +172,9 @@ export async function saveOpenClawConfig(config: OpenClawConfig): Promise<void> 
         return;
       }
     } catch (err) {
-      logger.warn(
-        '[config-manager] runtime config write failed, falling back to file I/O',
-        { error: err }
-      );
+      logger.warn('[config-manager] runtime config write failed, falling back to file I/O', {
+        error: err,
+      });
     }
   }
 
