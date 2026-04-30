@@ -20,12 +20,27 @@ import * as path from 'node:path';
 const MAX_SCRIPT_BYTES = 256 * 1024;
 
 export function loadLocalScriptText(scriptPath: string): string | undefined {
+  if (!path.isAbsolute(scriptPath)) return undefined;
+  // Open first, then fstat the fd — atomic w.r.t. the file content and
+  // eliminates the TOCTOU window between stat and read
+  // (CodeQL js/file-system-race).
+  let fd: number | undefined;
   try {
-    if (!path.isAbsolute(scriptPath)) return undefined;
-    const stat = fs.statSync(scriptPath);
+    fd = fs.openSync(scriptPath, 'r');
+    const stat = fs.fstatSync(fd);
     if (!stat.isFile() || stat.size > MAX_SCRIPT_BYTES) return undefined;
-    return fs.readFileSync(scriptPath, 'utf8');
+    const buf = Buffer.alloc(stat.size);
+    fs.readSync(fd, buf, 0, stat.size, 0);
+    return buf.toString('utf8');
   } catch {
     return undefined;
+  } finally {
+    if (fd !== undefined) {
+      try {
+        fs.closeSync(fd);
+      } catch {
+        /* ignore */
+      }
+    }
   }
 }

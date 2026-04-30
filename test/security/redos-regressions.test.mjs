@@ -13,10 +13,11 @@ const u = (p) => pathToFileURL(path.join(distBase, p)).href;
 // Regression tests for CodeQL-flagged ReDoS sites. Each test exercises a
 // worst-case input that, with the unbounded original regex, would trigger
 // polynomial / exponential backtracking. With bounded quantifiers in place,
-// each call must complete well under the 250ms budget.
+// each call must complete well under the budget.
+//
+// 500ms is generous: a polynomial-redos blowup would take many seconds,
+// so this catches regressions while tolerating CI/local-machine variance.
 
-// Generous budget: a polynomial-redos blowup would take many seconds, so
-// 500ms catches regressions while tolerating CI/local-machine variance.
 const BUDGET_MS = 500;
 
 function timed(fn) {

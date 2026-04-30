@@ -254,22 +254,36 @@ export class PiiSanitizerMiddleware implements Middleware {
     const resolvedPath = path.resolve(filePath);
 
     let content: string;
+    // Open first, then fstat — atomic w.r.t. the file content. Eliminates
+    // the TOCTOU race between statSync and readFileSync
+    // (CodeQL js/file-system-race).
+    let fd: number | undefined;
     try {
-      // Skip files > 1 MB to avoid memory pressure (likely not a secret file anyway)
-      const stat = fs.statSync(resolvedPath);
+      fd = fs.openSync(resolvedPath, 'r');
+      const stat = fs.fstatSync(fd);
       if (stat.size > 1_048_576) {
         logger.debug(
           `[PiiSanitizer] Skipping pre-read of large file (${stat.size} bytes): ${resolvedPath}`
         );
         return null;
       }
-      content = fs.readFileSync(resolvedPath, 'utf-8');
+      const buf = Buffer.alloc(stat.size);
+      fs.readSync(fd, buf, 0, stat.size, 0);
+      content = buf.toString('utf-8');
     } catch (err) {
       // File doesn't exist yet, path is a glob, or access denied — let the tool handle it
       logger.debug(
         `[PiiSanitizer] Pre-read skipped for '${resolvedPath}': ${(err as Error).message}`
       );
       return null;
+    } finally {
+      if (fd !== undefined) {
+        try {
+          fs.closeSync(fd);
+        } catch {
+          /* ignore */
+        }
+      }
     }
 
     const detections = scanner.scan(content);

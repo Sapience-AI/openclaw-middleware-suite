@@ -169,14 +169,17 @@ export function injectAuthProfile(): void {
         version: 1,
         profiles: {},
       };
-      if (existsSync(authPath)) {
-        try {
-          const existing = JSON.parse(readFileSync(authPath, 'utf8'));
-          if (existing.version && existing.profiles) {
-            store = existing;
-          }
-        } catch {
-          // Invalid JSON, use fresh store
+      // No existsSync precheck — attempt the read and tolerate ENOENT.
+      // Removing the precheck eliminates the TOCTOU window
+      // (CodeQL js/file-system-race).
+      try {
+        const existing = JSON.parse(readFileSync(authPath, 'utf8'));
+        if (existing.version && existing.profiles) {
+          store = existing;
+        }
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+          // Invalid JSON or other error — use fresh store
         }
       }
 

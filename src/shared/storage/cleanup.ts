@@ -304,10 +304,19 @@ function cleanAgentAuthProfiles(openclawHome: string): void {
 
     for (const agentId of agents) {
       const authPath = join(agentsDir, agentId, 'agent', 'auth-profiles.json');
-      if (!existsSync(authPath)) continue;
 
+      // No existsSync precheck — just attempt the read and tolerate ENOENT.
+      // Removing the precheck eliminates the TOCTOU window
+      // (CodeQL js/file-system-race).
       try {
-        const store = JSON.parse(readFileSync(authPath, 'utf8'));
+        let raw: string;
+        try {
+          raw = readFileSync(authPath, 'utf8');
+        } catch (err) {
+          if ((err as NodeJS.ErrnoException).code === 'ENOENT') continue;
+          throw err;
+        }
+        const store = JSON.parse(raw);
         if (!store?.profiles) continue;
 
         let changed = false;
