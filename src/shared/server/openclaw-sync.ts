@@ -170,6 +170,13 @@ export async function clearPendingWrites(): Promise<void> {
 
 function setNestedValue(obj: Record<string, unknown>, dotPath: string, value: unknown): void {
   const keys = dotPath.split('.');
+  // Reject any path segment that could pollute Object.prototype
+  // (CodeQL js/prototype-pollution-utility).
+  for (const k of keys) {
+    if (k === '__proto__' || k === 'constructor' || k === 'prototype') {
+      throw new Error(`Refusing to set property at unsafe path segment: ${k}`);
+    }
+  }
   let current: Record<string, unknown> = obj;
 
   for (let i = 0; i < keys.length - 1; i++) {

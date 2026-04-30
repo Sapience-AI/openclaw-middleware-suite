@@ -168,6 +168,13 @@ export class ConfigStore {
 
   private static setNestedValue(obj: any, pathStr: string, value: any) {
     const keys = pathStr.split('.');
+    // Reject any path segment that could pollute Object.prototype
+    // (CodeQL js/prototype-pollution-utility).
+    for (const k of keys) {
+      if (k === '__proto__' || k === 'constructor' || k === 'prototype') {
+        throw new Error(`Refusing to set property at unsafe path segment: ${k}`);
+      }
+    }
     let current = obj;
     for (let i = 0; i < keys.length - 1; i++) {
       if (!current[keys[i]] || typeof current[keys[i]] !== 'object') {
