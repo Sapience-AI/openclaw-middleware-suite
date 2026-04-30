@@ -354,7 +354,7 @@ Incoming Request
 | **Native provider adapters** — OpenAI / Anthropic / Google with SSE streaming conversion                                                                         |           ✅ (+ ChatGPT Codex subscription)            |                                          ✅                                           |
 | **Hard overrides** — reasoning keyword, short-message, tool-floor, large-context                                                                                 |                     ✅ 4 overrides                     | ✅ 6 overrides (+ structured-output floor + session-startup `/new` `/reset` → SIMPLE) |
 | **Multilingual keywords** — 9 languages, 1,500+ keywords across all 14 keyword dimensions                                                                        |                    ❌ English only                     |                                          ✅                                           |
-| **Routing profiles** — `auto` / `eco` / `premium` / `agentic` switch the whole fallback chain in one setting                                                     |              ❌ single deterministic map               |                                          ✅                                           |
+| **Routing profiles** — `eco` / `premium` / `agentic` switch the whole fallback chain per request, each with its own per-tier model map                          |              ❌ single deterministic map               |                                          ✅                                           |
 | **Model pinning** — the same session keeps the same model across every turn, with auto-release on complexity escalation                                          |                 ❌ tier-only momentum                  |                            ✅ per-session high-water mark                             |
 | **Three-strike escalation** — user retries an identical request 3× → auto-bump to next tier                                                                      |                           ❌                           |                                          ✅                                           |
 | **Auto cache-marker injection** — Anthropic `cache_control` on last system block + last tool, Google `cachedContent` token passthrough                           |                   ✅ Anthropic only                    |                                 ✅ Anthropic + Google                                 |
@@ -687,6 +687,31 @@ This is what OpenClaw's plugin loader sees when the suite is registered:
 ```
 
 The entry exports `SapienceMiddlewarePlugin` (a default-export object conforming to `SapienceMiddlewareManifest`). The loader registers each declared hook and dispatches to the in-process pipeline runner (`MiddlewareRegistry`).
+
+---
+
+### Update
+
+Pull a newer published version of the plugin:
+
+```bash
+# 1. Recommended: disable every middleware first via the dashboard or CLI so
+#    no in-flight requests are mid-pipeline when the plugin reloads. Toggling
+#    them back on after the gateway restart re-runs the persist-defaults
+#    handlers cleanly.
+sai disable
+
+# 2. Pull the latest published version. `openclaw plugins update` upgrades
+#    the tracked plugin to the newest version from its registered source.
+openclaw plugins update sapience-ai-suite
+
+# 3. Restart the gateway so the new plugin code is loaded in-process.
+openclaw gateway restart
+```
+
+After the restart, re-enable the middlewares you turned off in step 1 (dashboard toggles, or `sai enable`).
+
+For local dev installs (`openclaw plugins install --link .`), pull the upstream changes you want, run `npm run build`, then restart: `openclaw gateway restart`. No re-link needed because `--link` follows the working tree.
 
 ---
 
@@ -1105,7 +1130,7 @@ import {
 1. **Embedded HTTP proxy** *(default)* — `initialize()` builds config and starts a localhost proxy on `port`. Point your existing OpenAI/Anthropic SDK at `http://127.0.0.1:{port}/v1/chat/completions` and routing happens transparently inside the proxy.
 2. **In-process scoring** — call `mr.pickTier(input)` directly to get the chosen tier + confidence + dimension breakdown without binding a port. Useful when you'd rather forward to your own provider client.
 
-Disk overlay at `sapience-ai-suite.json[model_routing]`. Watch out for shallow-merge wholesale-replacement on the nested-object fields: `tiers`, `tierOverrides`, `weightOverrides`, `boundaryOverrides`, `providerConfigs`. **API key fallback** — `targetApiKey` and per-provider keys fall back to environment variables (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`) when neither inline config nor disk overlay specifies them.
+Disk overlay at `sapience-ai-suite.json[model_routing]`. Watch out for shallow-merge wholesale-replacement on the nested-object fields: `tiersByProfile`, `tierOverridesByProfile`, `weightOverrides`, `boundaryOverrides`, `providerConfigs`. **API key fallback** — `targetApiKey` and per-provider keys fall back to environment variables (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`) when neither inline config nor disk overlay specifies them.
 
 ```ts
 import { MiddlewareRegistry } from '@sapience-ai-corporation/openclaw-middleware-suite';
@@ -1120,10 +1145,14 @@ const mr = new ModelRoutingMiddleware();
 await mr.initialize({
   enabled: true,                     // auto-start proxy (default)
   port: 9000,
-  defaultProfile: 'auto',            // 'eco' | 'auto' | 'premium' | 'agentic'
+  // Absolute-fallback profile when a request doesn't specify one (no
+  // sai-router/* model id, no X-Router-Profile header). Defaults to 'eco';
+  // override here for programmatic consumers that want a different fallback.
+  defaultProfile: 'eco',             // 'eco' | 'premium' | 'agentic'
   targetApiKey: process.env.OPENAI_API_KEY,
-  // tiers, providers, classifier, dedup, session, momentum, responseCache,
-  // costAlerts — all optional, all merged over DEFAULT_MODEL_ROUTING_CONFIG
+  // tiersByProfile (per-profile tier maps), providers, classifier, dedup,
+  // session, momentum, responseCache, costAlerts — all optional, all merged
+  // over DEFAULT_MODEL_ROUTING_CONFIG.
 });
 // Route your LLM client at http://127.0.0.1:9000/v1/chat/completions
 
@@ -1136,17 +1165,38 @@ const result = mr.pickTier({
   },
 });
 // result = { tier: 'COMPLEX', score: 47.2, confidence: 0.83, dimensions: [...] }
-const tierConfig = mr.getConfig().tiers[result.tier];
+// Pick a profile and read that profile's tier map. The proxy uses this same
+// shape — there's no flat `config.tiers` anymore.
+const tierConfig = mr.getConfig().tiersByProfile.eco[result.tier];
 // tierConfig = { primary: 'gpt-5', fallbacks: ['claude-opus-4-7'] }
 
 // Path 2: In-process patch. Shallow-merges into this.config; if the proxy is
 // running, propagates via proxy.updateConfig() so live HTTP traffic uses
-// the new values.
-mr.updateConfig({ defaultProfile: 'cost' });
+// the new values. Use `tiersByProfile` to swap one or more profiles' tier
+// maps without touching the others.
+mr.updateConfig({
+  tiersByProfile: {
+    ...mr.getConfig().tiersByProfile,
+    premium: {
+      SIMPLE: { primary: 'gpt-4o', fallbacks: [] },
+      STANDARD: { primary: 'claude-sonnet-4-6', fallbacks: ['gpt-4o'] },
+      COMPLEX: { primary: 'claude-opus-4-6', fallbacks: ['claude-sonnet-4-6'] },
+      REASONING: { primary: 'o3', fallbacks: ['claude-opus-4-6'] },
+    },
+  },
+});
 new MiddlewareRegistry().register(mr);
 
 // Path 3: Disk-backed. CLI (`sai router …`) and dashboard use the same pair.
-await ModelRoutingPolicyStore.update({ defaultProfile: 'premium' });
+// `tierOverridesByProfile` slots are independent — writing one doesn't
+// disturb the others.
+await ModelRoutingPolicyStore.update({
+  tierOverridesByProfile: {
+    premium: {
+      COMPLEX: { primary: 'claude-opus-4-6', fallbacks: ['claude-sonnet-4-6'] },
+    },
+  },
+});
 mr.reloadConfig();
 ```
 
@@ -1161,7 +1211,7 @@ await mr.shutdown();   // permanent teardown (Middleware-interface contract)
 
 `start()` requires `initialize()` to have been called first so `this.config` is populated. `initialize({ enabled: false })` is the way to build config without auto-starting the proxy.
 
-> **Constructed-at-start fields need a stop/start to take effect.** `port`, `responseCache`, and `costAlerts` are bound when `start()` runs. Patching them via `updateConfig()` updates `this.config`, but the running proxy / cache instance / cost tracker keeps its constructor-time settings until you call `mr.stop()` then `mr.start()` (or `mr.shutdown()` then `mr.initialize()` again). Per-request fields like `defaultProfile`, `tierOverrides`, `weightOverrides` flow through immediately because they're read on every routing decision.
+> **Constructed-at-start fields need a stop/start to take effect.** `port`, `responseCache`, and `costAlerts` are bound when `start()` runs. Patching them via `updateConfig()` updates `this.config`, but the running proxy / cache instance / cost tracker keeps its constructor-time settings until you call `mr.stop()` then `mr.start()` (or `mr.shutdown()` then `mr.initialize()` again). Per-request fields like `tiersByProfile`, `weightOverrides`, and `defaultProfile` (the absolute fallback) flow through immediately because they're read on every routing decision.
 
 ##### Standalone Primitives
 
@@ -1177,7 +1227,7 @@ Model Routing's internals are unusually composable — every stage of the pipeli
 | `discoverAllModels()` / `resolveProvider()` / `autoAssignTiers()` | Live LiteLLM catalog pull, provider-format detection, and tier auto-assignment — the building blocks `sai router models` uses internally. |
 | `MomentumTracker`, `SessionStore` | Session-momentum and pinning state. Use to keep the same model warm across turns when running your own proxy. |
 | `PluginRegistry`, `RouterPlugin` | Hook-point system for `onBeforeScore` / `onAfterScore` / `onBeforeForward` / `onAfterForward`. Compose with `ModelRoutingMiddleware` or use standalone. |
-| `PROFILE_CONFIGS`, `VALID_PROFILES`, `isValidProfile` | The four built-in profile presets (`eco` / `auto` / `premium` / `agentic`) and validators. |
+| `PROFILE_CONFIGS`, `VALID_PROFILES`, `isValidProfile` | The three built-in profile presets (`eco` / `premium` / `agentic`) and validators. |
 | `DEFAULT_*_CONFIG` | Full default config objects for routing / scoring / classifier / dedup. Spread into inline overrides. |
 
 ```ts

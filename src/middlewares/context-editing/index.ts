@@ -360,26 +360,6 @@ export class ContextEditingMiddleware implements Middleware {
         // compaction for the next turn's beforeAgentStart, which runs
         // BEFORE the SessionManager opens the JSONL (no DAG fork risk).
       }
-
-      // --- ICC Prompt Injection --- [DISABLED: testing compaction summary without ICC]
-      // Reuse the ICC result generated for the pending middleware-triggered compaction.
-      // const pending = this.pendingCompactions.get(sessionKey);
-      // if (pending && pending.extractedEntities.length > 0) {
-      //   const iccSection = this.buildICCSection(pending);
-      //   diag('beforePromptBuild: injecting ICC into system prompt', {
-      //     sessionKey,
-      //     entityCount: pending.extractedEntities.length,
-      //     sectionLength: iccSection.length,
-      //   });
-      //
-      //   logger.info('[ContextEditingMiddleware] Injecting ICC directives via appendSystemContext', {
-      //     sessionKey,
-      //     entityCount: pending.extractedEntities.length,
-      //     trigger: pending.trigger,
-      //   });
-      //
-      //   return { appendSystemContext: iccSection };
-      // }
     } catch (err) {
       logger.error('[ContextEditingMiddleware] beforePromptBuild error', { error: err });
     }
@@ -807,7 +787,6 @@ export class ContextEditingMiddleware implements Middleware {
       // conflicts, and priorities so it can carry them forward across compaction
       // boundaries.  Without this, the second compaction loses all context from
       // the first compaction's ICC extraction.
-      // (Previously filtered out: if (m.role === 'compactionSummary') return false;)
 
       // Filter: system messages
       if (m.role === 'system') return false;
@@ -1168,11 +1147,18 @@ export class ContextEditingMiddleware implements Middleware {
       // Compaction succeeded — compute savings and write audit log
       const tokensAfter = this.estimateTokens(summary);
 
+      // The next request that reaches the Model Routing proxy will see a new
+      // first user message and derive a new MR session ID — by design.
+      // Pinned tier, momentum, and three-strike state reset at this boundary;
+      // see handler.ts `extractSessionId` for the full rationale. Flag is
+      // surfaced here so operators investigating mid-conversation tier flips
+      // can grep for `routingSessionWillReanchor` and correlate timestamps.
       logger.info('[ContextEditingMiddleware] Compaction completed successfully', {
         sessionKey,
         tokensBefore,
         tokensAfter,
         firstKeptEntryId,
+        routingSessionWillReanchor: true,
       });
 
       let tokensSaved = 0;

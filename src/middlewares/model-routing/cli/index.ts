@@ -34,7 +34,6 @@ export function registerModelRoutingCommands(program: Command): void {
     .description('View or edit scoring configuration')
     .option('--set-weight <value>', 'Set dimension weight: "dimensionName 0.05"')
     .option('--set-boundary <value>', 'Set tier boundary: "simpleStandard -0.1"')
-    .option('--set-profile <value>', 'Set default routing profile: eco|auto|premium|agentic')
     .option('--enable-pinning', 'Turn session pinning on (default)')
     .option('--disable-pinning', 'Turn session pinning off — also disables provider prompt caching')
     .option('--enable-cache', 'Turn provider prompt caching on (requires pinning)')
@@ -43,8 +42,12 @@ export function registerModelRoutingCommands(program: Command): void {
 
   router
     .command('tiers')
-    .description('View or edit tier-to-model mappings')
-    .option('--set <value>', 'Set tier primary model: "COMPLEX claude-sonnet-4-6"')
+    .description('View or edit per-profile tier-to-model mappings')
+    .option('--profile <p>', 'Scope to a profile: eco|premium|agentic')
+    .option(
+      '--set <value>',
+      'Set tier primary model: "COMPLEX claude-sonnet-4-6" (requires --profile)'
+    )
     .action(routerTiersCommand);
 
   router

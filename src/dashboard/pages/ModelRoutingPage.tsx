@@ -26,6 +26,8 @@ import { formatNumber, formatTimestamp } from '../services/formatters';
 import { useMiddlewareEnabled } from '../services/useMiddlewareEnabled';
 
 const TIERS = ['SIMPLE', 'STANDARD', 'COMPLEX', 'REASONING'] as const;
+const PROFILES = ['eco', 'premium', 'agentic'] as const;
+type Profile = (typeof PROFILES)[number];
 
 export function ModelRoutingPage(_props: { path?: string }) {
   const [stats, setStats] = useState<Record<string, unknown>>({});
@@ -39,6 +41,11 @@ export function ModelRoutingPage(_props: { path?: string }) {
   const [audit, setAudit] = useState<unknown[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<'overview' | 'config' | 'logs'>('overview');
+  // Which profile the config form is currently editing. Independent of any
+  // global "default profile" — each profile has its own persisted tier slot
+  // in `config.tierOverridesByProfile`, and switching this dropdown swaps
+  // which slot the form is bound to.
+  const [editingProfile, setEditingProfile] = useState<Profile>('eco');
   const enabled = useMiddlewareEnabled('model-routing');
 
   useEffect(() => {
@@ -52,7 +59,14 @@ export function ModelRoutingPage(_props: { path?: string }) {
     ]).finally(() => setLoading(false));
   }, []);
 
-  const tiers = config.tierOverrides as Record<string, unknown> || {};
+  // Tier configuration for the *currently edited* profile. Each profile has
+  // its own slot in `tierOverridesByProfile`; missing slots fall back to
+  // the runtime defaults from `PROFILE_CONFIGS` (rendered as blanks here
+  // since the dashboard reads only persisted overrides — saving populates
+  // the slot).
+  const tierOverridesByProfile =
+    (config.tierOverridesByProfile as Record<string, Record<string, unknown>>) || {};
+  const tiers = tierOverridesByProfile[editingProfile] || {};
   const providerList = Object.entries(providers);
 
   // Build model options from discovered models
@@ -64,20 +78,10 @@ export function ModelRoutingPage(_props: { path?: string }) {
     })),
   ];
 
-  // Build form fields dynamically (need model catalog for dropdowns)
+  // Build form fields dynamically (need model catalog for dropdowns).
+  // The profile selector is rendered outside ConfigForm (parent-level state)
+  // so changing it remounts the form with the new profile's tier values.
   const routingFields: FormField[] = [
-    {
-      key: 'defaultProfile',
-      label: 'Routing Profile',
-      description: 'Overall routing strategy that controls model selection behavior.',
-      type: 'dropdown',
-      options: [
-        { value: 'eco', label: 'Eco — Prefer cheaper models' },
-        { value: 'auto', label: 'Auto — Balance cost and quality (default)' },
-        { value: 'premium', label: 'Premium — Prefer top-tier models' },
-        { value: 'agentic', label: 'Agentic — Optimized for agent workloads' },
-      ],
-    },
     ...TIERS.map((tier): FormField => ({
       key: `_tier_${tier}`,
       label: `${tier} Tier`,
@@ -124,7 +128,6 @@ export function ModelRoutingPage(_props: { path?: string }) {
   const pinningOn = config.sessionPinningEnabled === true;
   const cacheOn = pinningOn && config.providerCacheEnabled !== false;
   const formValues: Record<string, unknown> = {
-    defaultProfile: (config.defaultProfile as string) || 'auto',
     _fallback: '',
     sessionPinningEnabled: pinningOn ? 'enabled' : 'disabled',
     providerCacheEnabled: cacheOn ? 'enabled' : 'disabled',
@@ -285,7 +288,41 @@ export function ModelRoutingPage(_props: { path?: string }) {
 
       {!loading && tab === 'config' && (
         <div class="page-section">
+          <div style={{ marginBottom: '16px' }}>
+            <label
+              style={{
+                display: 'block',
+                fontSize: '13px',
+                fontWeight: 500,
+                marginBottom: '6px',
+                color: 'var(--sai-text)',
+              }}
+            >
+              Editing profile
+            </label>
+            <div style={{ fontSize: '12px', color: 'var(--sai-text-muted)', marginBottom: '8px' }}>
+              Pick which routing profile's tier mappings you want to edit. All three profiles
+              are always exposed in the OpenClaw model picker \u2014 selecting one here just chooses
+              which profile's saved configuration the form below operates on.
+            </div>
+            <select
+              value={editingProfile}
+              disabled={enabled === false}
+              onChange={(e) => setEditingProfile((e.target as HTMLSelectElement).value as Profile)}
+              class="config-form-input"
+              style={{ maxWidth: '420px' }}
+            >
+              <option value="eco">Eco \u2014 Prefer cheaper models</option>
+              <option value="premium">Premium \u2014 Prefer top-tier models</option>
+              <option value="agentic">Agentic \u2014 Optimized for agent workloads</option>
+            </select>
+          </div>
+
           <ConfigForm
+            // Force a remount when the profile changes so the tier dropdowns
+            // re-seed from the new profile's saved values rather than keeping
+            // the previous profile's stale state.
+            key={editingProfile}
             fields={routingFields}
             values={formValues}
             readOnly={enabled === false}
@@ -312,15 +349,19 @@ export function ModelRoutingPage(_props: { path?: string }) {
               const pinning = val.sessionPinningEnabled === 'enabled';
               const cache = pinning && val.providerCacheEnabled === 'enabled';
 
-              const updated = {
-                ...config,
-                defaultProfile: val.defaultProfile,
+              // Send profile-scoped tier write. The server nests these under
+              // `tierOverridesByProfile[profile]`, leaving the other profiles'
+              // saved configs untouched.
+              await updateRoutingTiers({
+                profile: editingProfile,
                 tierOverrides: newTierOverrides,
                 sessionPinningEnabled: pinning,
                 providerCacheEnabled: cache,
-              };
-              await updateRoutingTiers(updated);
-              setConfig(updated);
+              });
+
+              // Refresh client-side config so the next render sees the saved values.
+              const fresh = await fetchRoutingConfig().catch(() => null);
+              if (fresh) setConfig(fresh);
             }}
           />
         </div>

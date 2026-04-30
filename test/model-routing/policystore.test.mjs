@@ -48,9 +48,13 @@ test('save() + load() round-trip preserves every field', async () => {
   const payload = {
     weightOverrides: { reasoning: 0.7, costSensitivity: 0.3 },
     boundaryOverrides: { simpleStandard: 0.25, standardComplex: 0.55 },
-    tierOverrides: {
-      SIMPLE: { primary: 'gpt-4o-mini', fallbacks: [] },
-      COMPLEX: { primary: 'claude-opus-4-6', fallbacks: ['anthropic/claude-sonnet-4-6'] },
+    tierOverridesByProfile: {
+      eco: {
+        SIMPLE: { primary: 'gpt-4o-mini', fallbacks: [] },
+      },
+      premium: {
+        COMPLEX: { primary: 'claude-opus-4-6', fallbacks: ['anthropic/claude-sonnet-4-6'] },
+      },
     },
     exclusions: ['gpt-3.5-turbo'],
     providerConfigs: {
@@ -77,7 +81,7 @@ test('update() merges partial writes without wiping other fields', async () => {
   const initial = {
     weightOverrides: { reasoning: 0.6 },
     exclusions: ['gpt-3.5-turbo'],
-    defaultProfile: 'auto',
+    defaultProfile: 'eco',
     sessionPinningEnabled: false,
   };
   await ModelRoutingPolicyStore.save(initial);
@@ -116,7 +120,7 @@ test('save(defaults()) wipes all fields — the reset path', async () => {
   resetStoreFile();
 
   await ModelRoutingPolicyStore.save({
-    defaultProfile: 'auto',
+    defaultProfile: 'eco',
     exclusions: ['x'],
     sessionPinningEnabled: true,
   });

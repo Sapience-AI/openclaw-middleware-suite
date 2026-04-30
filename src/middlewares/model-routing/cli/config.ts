@@ -18,17 +18,11 @@ import {
   ModelRoutingPolicyData,
 } from '../storage/ModelRoutingPolicyStore.js';
 import { DEFAULT_SCORING_CONFIG } from '../config.js';
-import {
-  VALID_PROFILES,
-  PROFILE_DESCRIPTIONS,
-  isValidProfile,
-  RoutingProfile,
-} from '../selection/profiles.js';
+import { VALID_PROFILES, PROFILE_DESCRIPTIONS } from '../selection/profiles.js';
 
 export async function routerConfigCommand(opts: {
   setWeight?: string;
   setBoundary?: string;
-  setProfile?: string;
   enablePinning?: boolean;
   disablePinning?: boolean;
   enableCache?: boolean;
@@ -102,21 +96,6 @@ export async function routerConfigCommand(opts: {
       weightOverrides: { ...currentWeights, [dimName]: weight },
     });
     console.log(chalk.green(`Set ${dimName} weight to ${weight}`));
-    return;
-  }
-
-  // ── Set profile ─────────────────────────────────────────────────────────
-  if (opts.setProfile) {
-    if (!isValidProfile(opts.setProfile)) {
-      console.error(chalk.red(`Invalid profile: ${opts.setProfile}`));
-      console.error('Valid profiles: ' + VALID_PROFILES.join(', '));
-      process.exit(1);
-    }
-    await ModelRoutingPolicyStore.update({
-      defaultProfile: opts.setProfile as RoutingProfile,
-    });
-    console.log(chalk.green(`Default profile set to: ${opts.setProfile}`));
-    console.log(chalk.dim(PROFILE_DESCRIPTIONS[opts.setProfile as RoutingProfile]));
     return;
   }
 
@@ -207,12 +186,16 @@ export async function routerConfigCommand(opts: {
 
   console.log('');
 
-  // Routing profiles
-  const currentProfile = data.defaultProfile || 'auto';
+  // Routing profiles — all three are always selectable per request from the
+  // OpenClaw model picker. Per-profile tier mappings are edited via
+  // `sai router tiers --profile <eco|premium|agentic> --set "<TIER> <model>"`
+  // or in the dashboard's Model Routing → Config tab.
+  const byProfile = data.tierOverridesByProfile || {};
   console.log(chalk.bold('Routing Profiles:'));
   for (const p of VALID_PROFILES) {
-    const active = p === currentProfile ? chalk.green(' (active)') : '';
-    console.log(`  ${chalk.white(p.padEnd(10))} ${chalk.dim(PROFILE_DESCRIPTIONS[p])}${active}`);
+    const configured = byProfile[p] && Object.keys(byProfile[p]!).length > 0;
+    const status = configured ? chalk.green(' (configured)') : chalk.dim(' (using defaults)');
+    console.log(`  ${chalk.white(p.padEnd(10))} ${chalk.dim(PROFILE_DESCRIPTIONS[p])}${status}`);
   }
   console.log('');
 

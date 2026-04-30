@@ -8,21 +8,48 @@
  */
 
 /**
- * CLI: sai router tiers — View/edit tier-to-model mappings.
+ * CLI: sai router tiers — View/edit per-profile tier-to-model mappings.
+ *
+ * Each routing profile (eco / premium / agentic) carries its own tier→model
+ * map persisted under `tierOverridesByProfile[profile]` in
+ * sapience-ai-suite.json. Without `--profile`, this command shows all three
+ * profiles. With `--profile <p>`, it scopes a view or edit to that one
+ * profile.
  */
 
 import chalk from 'chalk';
-import { ModelRoutingDiscovery } from '../storage/ModelRoutingDiscovery.js';
 import { ModelRoutingPolicyStore } from '../storage/ModelRoutingPolicyStore.js';
-import { DEFAULT_TIER_MODELS } from '../config.js';
-import { Tier, TIER_ORDER } from '../types.js';
+import { Tier, TIER_ORDER, TierModelConfig } from '../types.js';
+import {
+  PROFILE_CONFIGS,
+  VALID_PROFILES,
+  isValidProfile,
+  RoutingProfile,
+} from '../selection/profiles.js';
 
-export async function routerTiersCommand(opts: { set?: string }): Promise<void> {
-  const store = new ModelRoutingDiscovery();
-  store.load();
+export async function routerTiersCommand(opts: { set?: string; profile?: string }): Promise<void> {
+  const data = await ModelRoutingPolicyStore.load();
+  const byProfile = data.tierOverridesByProfile ?? {};
 
-  // ── Set tier primary model ──────────────────────────────────────────────
+  // ── Set tier primary model (scoped to a single profile) ─────────────────
   if (opts.set) {
+    if (!opts.profile) {
+      console.error(
+        chalk.red('--set requires --profile <eco|premium|agentic> to scope the write.')
+      );
+      console.error(
+        chalk.dim('Example: sai router tiers --profile premium --set "COMPLEX claude-opus-4-6"')
+      );
+      process.exit(1);
+    }
+    if (!isValidProfile(opts.profile)) {
+      console.error(
+        chalk.red(`Invalid profile: ${opts.profile}. Must be one of: ${VALID_PROFILES.join(', ')}`)
+      );
+      process.exit(1);
+    }
+    const profile = opts.profile as RoutingProfile;
+
     const parts = opts.set.split(/\s+/);
     if (parts.length < 2) {
       console.error(chalk.red('Usage: --set "<TIER> <model>"'));
@@ -36,44 +63,59 @@ export async function routerTiersCommand(opts: { set?: string }): Promise<void> 
       process.exit(1);
     }
 
-    const data = store.getData();
-    const existing = data.tierOverrides?.[tier] || DEFAULT_TIER_MODELS[tier];
+    const profileSlot = (byProfile[profile] ?? {}) as Partial<Record<Tier, TierModelConfig>>;
+    const existing = profileSlot[tier] || PROFILE_CONFIGS[profile][tier];
     await ModelRoutingPolicyStore.update({
-      tierOverrides: {
-        ...(data.tierOverrides ?? {}),
-        [tier]: { primary: model, fallbacks: existing.fallbacks },
+      tierOverridesByProfile: {
+        ...byProfile,
+        [profile]: {
+          ...profileSlot,
+          [tier]: { primary: model, fallbacks: existing.fallbacks },
+        },
       },
     });
-    console.log(chalk.green(`Set ${tier} primary model to ${model}`));
+    console.log(chalk.green(`Set ${profile} ${tier} primary model to ${model}`));
     return;
   }
 
   // ── Display tier mappings ───────────────────────────────────────────────
-  const storeData = store.getData();
+  const profilesToShow: RoutingProfile[] = opts.profile
+    ? isValidProfile(opts.profile)
+      ? [opts.profile as RoutingProfile]
+      : (() => {
+          console.error(
+            chalk.red(
+              `Invalid profile: ${opts.profile}. Must be one of: ${VALID_PROFILES.join(', ')}`
+            )
+          );
+          process.exit(1);
+        })()
+    : [...VALID_PROFILES];
 
   console.log('');
   console.log(chalk.bold.cyan('='.repeat(70)));
   console.log(chalk.bold.cyan('   Tier-to-Model Mappings'));
   console.log(chalk.bold.cyan('='.repeat(70)));
-  console.log('');
 
-  for (const tier of TIER_ORDER) {
-    const defaultCfg = DEFAULT_TIER_MODELS[tier];
-    const override = storeData.tierOverrides?.[tier];
-    const effective = override || defaultCfg;
-
-    const isOverridden = override !== undefined;
-
-    console.log(
-      `  ${tierColor(tier)(tier.padEnd(12))} ` +
-        chalk.white(effective.primary) +
-        (isOverridden ? chalk.yellow(' (overridden)') : chalk.dim(' (default)'))
-    );
-
-    if (effective.fallbacks.length > 0) {
+  for (const profile of profilesToShow) {
+    const slot = (byProfile[profile] ?? {}) as Partial<Record<Tier, TierModelConfig>>;
+    const defaults = PROFILE_CONFIGS[profile];
+    console.log('');
+    console.log(chalk.bold(`  ${profile}`));
+    for (const tier of TIER_ORDER) {
+      const override = slot[tier];
+      const effective = override || defaults[tier];
+      const isOverridden = override !== undefined;
       console.log(
-        `  ${' '.repeat(12)} ${chalk.dim('fallbacks: ' + effective.fallbacks.join(', '))}`
+        `    ${tierColor(tier)(tier.padEnd(12))} ` +
+          chalk.white(effective.primary) +
+          (isOverridden ? chalk.yellow(' (configured)') : chalk.dim(' (default)'))
       );
+      if (effective.fallbacks.length > 0) {
+        console.log(
+          `    ${' '.repeat(12)} ${chalk.dim('fallbacks: ' + effective.fallbacks.join(', '))}`
+        );
+      }
     }
   }
 

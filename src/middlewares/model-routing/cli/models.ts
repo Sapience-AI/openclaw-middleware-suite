@@ -17,10 +17,8 @@
 
 import chalk from 'chalk';
 import { ModelRoutingDiscovery } from '../storage/ModelRoutingDiscovery.js';
-import { DiscoveredModel, Tier, TIER_ORDER } from '../types.js';
-import { DEFAULT_MODEL_ROUTING_CONFIG } from '../config.js';
+import { DiscoveredModel } from '../types.js';
 import { discoverAllModels } from '../providers/discovery.js';
-import { autoAssignTiers } from '../selection/auto-assign.js';
 
 export async function routerModelsCommand(opts: { refresh?: boolean }): Promise<void> {
   const store = new ModelRoutingDiscovery();
@@ -120,48 +118,11 @@ export async function routerModelsCommand(opts: { refresh?: boolean }): Promise<
     console.log('');
   }
 
-  // Show auto-assignment preview
-  const overrides = storeData.tierOverrides || {};
-  const autoAssigned = autoAssignTiers(models, overrides);
-
-  console.log(chalk.bold('Auto-Assignment Preview:'));
+  console.log(
+    chalk.dim(
+      'View per-profile tier mappings: sai router tiers ' +
+        '(or sai router tiers --profile <eco|premium|agentic> for one profile)'
+    )
+  );
   console.log('');
-  for (const tier of TIER_ORDER) {
-    const manual = overrides[tier];
-    const auto = autoAssigned[tier];
-    const current = DEFAULT_MODEL_ROUTING_CONFIG.tiers[tier];
-
-    if (manual) {
-      console.log(
-        `  ${tierColor(tier)(tier.padEnd(12))} ${chalk.white(manual.primary)} ${chalk.dim('(manual override)')}`
-      );
-    } else if (auto) {
-      console.log(
-        `  ${tierColor(tier)(tier.padEnd(12))} ${chalk.white(auto.primary)} ${chalk.green('(auto-assigned)')}`
-      );
-      if (auto.fallbacks.length > 0) {
-        console.log(`  ${''.padEnd(12)} ${chalk.dim('fallbacks: ' + auto.fallbacks.join(', '))}`);
-      }
-    } else {
-      console.log(
-        `  ${tierColor(tier)(tier.padEnd(12))} ${chalk.white(current.primary)} ${chalk.dim('(default)')}`
-      );
-    }
-  }
-  console.log('');
-}
-
-function tierColor(tier: Tier) {
-  switch (tier) {
-    case 'SIMPLE':
-      return chalk.green;
-    case 'STANDARD':
-      return chalk.blue;
-    case 'COMPLEX':
-      return chalk.yellow;
-    case 'REASONING':
-      return chalk.magenta;
-    default:
-      return chalk.white;
-  }
 }

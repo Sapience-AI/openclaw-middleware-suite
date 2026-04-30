@@ -219,8 +219,10 @@ export class ModelRoutingMiddleware implements Middleware {
    * routing engine directly in your own request pipeline without binding
    * an HTTP server.
    *
-   * Pair the returned tier with `mr.getConfig().tiers[result.tier]` to
-   * resolve the configured primary/fallback model names for that tier.
+   * Pair the returned tier with `mr.getConfig().tiersByProfile[profile][result.tier]`
+   * (where `profile` is one of `eco` / `premium` / `agentic`) to resolve the
+   * configured primary/fallback model names for that tier under the chosen
+   * profile.
    */
   pickTier(input: ScoreRequestInput): ScoringResult {
     return scoreRequest(input, this.config.scoring);
@@ -299,20 +301,31 @@ export class ModelRoutingMiddleware implements Middleware {
 
   private buildConfig(rawConfig: Record<string, unknown>): ModelRoutingConfig {
     const base = { ...DEFAULT_MODEL_ROUTING_CONFIG };
+    // Deep-clone the per-profile tier table so subsequent mutations don't
+    // leak into the module-level default. `{ ...DEFAULT }` is a shallow copy
+    // and `tiersByProfile` is a nested object literal.
+    base.tiersByProfile = JSON.parse(
+      JSON.stringify(DEFAULT_MODEL_ROUTING_CONFIG.tiersByProfile)
+    ) as typeof base.tiersByProfile;
 
     // Plugin-level config overrides
     if (typeof rawConfig.port === 'number') base.port = rawConfig.port;
     if (typeof rawConfig.targetBaseUrl === 'string') base.targetBaseUrl = rawConfig.targetBaseUrl;
     if (typeof rawConfig.targetApiKey === 'string') base.targetApiKey = rawConfig.targetApiKey;
 
-    // Tier overrides from plugin config
-    if (rawConfig.tiers && typeof rawConfig.tiers === 'object') {
-      const tiers = rawConfig.tiers as Record<string, unknown>;
-      for (const [tier, cfg] of Object.entries(tiers)) {
-        if (tier in base.tiers && cfg && typeof cfg === 'object') {
+    // Per-profile tier overrides from plugin config (preferred shape).
+    // `tiersByProfile: { eco: {...}, premium: {...}, agentic: {...} }`
+    if (rawConfig.tiersByProfile && typeof rawConfig.tiersByProfile === 'object') {
+      const byProfile = rawConfig.tiersByProfile as Record<string, unknown>;
+      for (const [profile, profileTiers] of Object.entries(byProfile)) {
+        if (!(profile in base.tiersByProfile)) continue;
+        if (!profileTiers || typeof profileTiers !== 'object') continue;
+        for (const [tier, cfg] of Object.entries(profileTiers as Record<string, unknown>)) {
+          if (!(tier in base.tiersByProfile[profile as RoutingProfile])) continue;
+          if (!cfg || typeof cfg !== 'object') continue;
           const tc = cfg as Record<string, unknown>;
           if (typeof tc.primary === 'string') {
-            base.tiers[tier as Tier] = {
+            base.tiersByProfile[profile as RoutingProfile][tier as Tier] = {
               primary: tc.primary,
               fallbacks: Array.isArray(tc.fallbacks) ? tc.fallbacks : [],
             };
@@ -412,10 +425,18 @@ export class ModelRoutingMiddleware implements Middleware {
       Object.assign(base.scoring.boundaries, storeData.boundaryOverrides);
     }
 
-    if (storeData.tierOverrides) {
-      for (const [tier, cfg] of Object.entries(storeData.tierOverrides)) {
-        if (cfg) {
-          base.tiers[tier as Tier] = cfg;
+    // Per-profile tier overrides from disk store. Each profile slot is
+    // applied independently — a write to `eco` doesn't touch `premium` or
+    // `agentic`. Missing profile slots inherit the default (PROFILE_CONFIGS).
+    if (storeData.tierOverridesByProfile) {
+      for (const [profile, profileTiers] of Object.entries(storeData.tierOverridesByProfile)) {
+        if (!(profile in base.tiersByProfile)) continue;
+        if (!profileTiers) continue;
+        for (const [tier, cfg] of Object.entries(profileTiers)) {
+          if (!(tier in base.tiersByProfile[profile as RoutingProfile])) continue;
+          if (cfg) {
+            base.tiersByProfile[profile as RoutingProfile][tier as Tier] = cfg;
+          }
         }
       }
     }
@@ -555,18 +576,23 @@ export class ModelRoutingMiddleware implements Middleware {
   }
 
   /**
-   * Scan all tier models and auto-populate missing provider configs.
-   * Uses env vars and OpenClaw auth profiles to resolve API keys.
+   * Scan all tier models across every profile and auto-populate missing
+   * provider configs. Uses env vars and OpenClaw auth profiles to resolve
+   * API keys. Iterates every profile because users can pick any of them
+   * per request — a key only present in one profile's tiers must still
+   * resolve.
    */
   private autoResolveProvidersFromTiers(config: ModelRoutingConfig): void {
     const neededProviders = new Set<string>();
 
-    for (const tierCfg of Object.values(config.tiers)) {
-      const provider = this.inferProviderFromModel(tierCfg.primary);
-      if (provider) neededProviders.add(provider);
-      for (const fb of tierCfg.fallbacks) {
-        const fbProvider = this.inferProviderFromModel(fb);
-        if (fbProvider) neededProviders.add(fbProvider);
+    for (const profileTiers of Object.values(config.tiersByProfile)) {
+      for (const tierCfg of Object.values(profileTiers)) {
+        const provider = this.inferProviderFromModel(tierCfg.primary);
+        if (provider) neededProviders.add(provider);
+        for (const fb of tierCfg.fallbacks) {
+          const fbProvider = this.inferProviderFromModel(fb);
+          if (fbProvider) neededProviders.add(fbProvider);
+        }
       }
     }
 
@@ -620,7 +646,13 @@ export class ModelRoutingMiddleware implements Middleware {
    * For nested patches, spread the current sub-object yourself:
    *
    *   mr.updateConfig({
-   *     tiers: { ...mr.getConfig().tiers, SIMPLE: { primary: 'gpt-5-mini', fallbacks: [] } },
+   *     tiersByProfile: {
+   *       ...mr.getConfig().tiersByProfile,
+   *       eco: {
+   *         ...mr.getConfig().tiersByProfile.eco,
+   *         SIMPLE: { primary: 'gpt-5-mini', fallbacks: [] },
+   *       },
+   *     },
    *   });
    *
    * For disk-backed updates that survive process restarts (and hot-reload

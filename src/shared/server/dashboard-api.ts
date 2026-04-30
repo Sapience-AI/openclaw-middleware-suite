@@ -389,8 +389,47 @@ export async function handleApiRoute(
       const { ModelRoutingPolicyStore } = await lazyImport(
         '../../middlewares/model-routing/storage/ModelRoutingPolicyStore.js'
       );
-      const body = JSON.parse(await readBody(req));
-      await ModelRoutingPolicyStore.update(body);
+      const { isValidProfile } = await lazyImport(
+        '../../middlewares/model-routing/selection/profiles.js'
+      );
+      const body = JSON.parse(await readBody(req)) as Record<string, unknown>;
+
+      // Tier writes are scoped to a single profile via `body.profile`. The
+      // dashboard editor surfaces one profile's tiers at a time and submits
+      // only that slot, leaving the other profiles' configs untouched.
+      const profile = typeof body.profile === 'string' ? body.profile : undefined;
+      const incomingTiers = body.tierOverrides;
+
+      const update: Record<string, unknown> = {};
+      // Sibling fields the dashboard may submit alongside tier edits — passed
+      // through unchanged.
+      for (const key of [
+        'sessionPinningEnabled',
+        'providerCacheEnabled',
+        'weightOverrides',
+        'boundaryOverrides',
+        'exclusions',
+        'providerConfigs',
+      ]) {
+        if (key in body) update[key] = body[key];
+      }
+
+      if (incomingTiers && typeof incomingTiers === 'object') {
+        if (!profile || !isValidProfile(profile)) {
+          json(res, 400, {
+            error: 'tierOverrides requires `profile` field set to eco|premium|agentic',
+          });
+          return;
+        }
+        const current = await ModelRoutingPolicyStore.load();
+        const existingByProfile = current.tierOverridesByProfile ?? {};
+        update.tierOverridesByProfile = {
+          ...existingByProfile,
+          [profile]: incomingTiers,
+        };
+      }
+
+      await ModelRoutingPolicyStore.update(update);
       json(res, 200, { ok: true });
       return;
     }

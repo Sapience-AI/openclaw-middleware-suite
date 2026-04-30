@@ -16,7 +16,7 @@
  * Follows the same pattern as CLawRouter's provider registration
  * (ClawRouter/src/index.ts:1191-1221, ClawRouter/src/provider.ts).
  *
- * The model list exposes meta-routing models (auto, eco, premium, agentic)
+ * The model list exposes meta-routing models (eco, premium, agentic)
  * rather than individual models — the proxy's scoring engine decides which
  * actual model to use at request time. Same pattern as CLawRouter's
  * "blockrun/auto", "blockrun/eco", "blockrun/premium" (models.ts:231-258).
@@ -58,17 +58,8 @@ export interface SapienceRouterProvider {
 
 const ROUTING_MODELS: ModelDefinitionConfig[] = [
   {
-    id: 'auto',
-    name: 'Auto (Smart Router — Balanced)',
-    reasoning: true,
-    input: ['text', 'image'],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 200_000,
-    maxTokens: 128_000,
-  },
-  {
     id: 'eco',
-    name: 'Eco (Smart Router — Cost Optimized)',
+    name: 'sai-router/eco',
     reasoning: true,
     input: ['text', 'image'],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
@@ -77,7 +68,7 @@ const ROUTING_MODELS: ModelDefinitionConfig[] = [
   },
   {
     id: 'premium',
-    name: 'Premium (Smart Router — Best Quality)',
+    name: 'sai-router/premium',
     reasoning: true,
     input: ['text', 'image'],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
@@ -86,7 +77,7 @@ const ROUTING_MODELS: ModelDefinitionConfig[] = [
   },
   {
     id: 'agentic',
-    name: 'Agentic (Smart Router — Tool Optimized)',
+    name: 'sai-router/agentic',
     reasoning: true,
     input: ['text', 'image'],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },

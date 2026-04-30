@@ -35,7 +35,7 @@ import type { ModelDefinitionConfig } from './router-provider.js';
 // Models allowlist entries (model IDs without provider prefix)
 // ---------------------------------------------------------------------------
 
-const ALLOWLIST_MODELS = ['auto', 'eco', 'premium', 'agentic'];
+const ALLOWLIST_MODELS = ['eco', 'premium', 'agentic'];
 
 // ---------------------------------------------------------------------------
 // injectModelsConfig — stage provider + allowlist writes

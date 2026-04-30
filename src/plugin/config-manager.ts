@@ -105,14 +105,14 @@ export async function isOpenClawInstalled(): Promise<boolean> {
  */
 export async function loadOpenClawConfig(): Promise<OpenClawConfig | null> {
   // Gateway context — use the runtime's cached config snapshot.
-  // Deep-clone the result: the gateway may return a frozen/sealed object
-  // and callers (flushToOpenClaw, cleanOpenclawConfig) need to mutate it.
+  // `current()` returns a readonly snapshot; deep-clone so callers
+  // (flushToOpenClaw, cleanOpenclawConfig) can mutate it.
   if (_runtime) {
     try {
-      const snapshot = _runtime.config.loadConfig();
+      const snapshot = _runtime.config.current();
       return JSON.parse(JSON.stringify(snapshot)) as OpenClawConfig;
     } catch (err) {
-      logger.warn('[config-manager] runtime.config.loadConfig() failed, falling back to file I/O', {
+      logger.warn('[config-manager] runtime.config.current() failed, falling back to file I/O', {
         error: err,
       });
     }
@@ -138,15 +138,20 @@ export async function loadOpenClawConfig(): Promise<OpenClawConfig | null> {
  * to file I/O when running from the CLI.
  */
 export async function saveOpenClawConfig(config: OpenClawConfig): Promise<void> {
-  // Gateway context — use atomic writeConfigFile
+  // Gateway context — use atomic replaceConfigFile with auto-reload policy.
+  // `afterWrite: { mode: "auto" }` defers to the gateway reload planner so
+  // changes that can hot-reload do, and changes that need restart do.
   if (_runtime) {
     try {
-      await _runtime.config.writeConfigFile(config as Record<string, unknown>);
+      await _runtime.config.replaceConfigFile({
+        nextConfig: config as Record<string, unknown>,
+        afterWrite: { mode: 'auto' },
+      });
       logger.info('OpenClaw config saved via runtime API');
       return;
     } catch (err) {
       logger.warn(
-        '[config-manager] runtime.config.writeConfigFile() failed, falling back to file I/O',
+        '[config-manager] runtime.config.replaceConfigFile() failed, falling back to file I/O',
         {
           error: err,
         }
@@ -307,7 +312,7 @@ export function getPluginMiddlewaresConfigSync(): Record<string, boolean> {
 
     if (_runtime) {
       try {
-        config = _runtime.config.loadConfig();
+        config = _runtime.config.current();
       } catch {
         // fall through to file I/O
       }

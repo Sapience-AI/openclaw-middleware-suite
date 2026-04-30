@@ -106,17 +106,22 @@ export const SapienceMiddlewareManifest: SapienceMiddlewarePluginManifest = {
 /** Subset of the OpenClaw plugin runtime used by Sapience Middleware. */
 export interface OpenClawRuntime {
   config: {
-    /** Returns the current OpenClaw config (process-global cached snapshot). */
-    loadConfig(): Record<string, unknown>;
+    /** Returns the current OpenClaw config (process-global cached snapshot, readonly). */
+    current(): Record<string, unknown>;
     /**
-     * Atomically write the full config to disk.
-     * Handles backup rotation, schema validation, env-var restoration,
-     * and notifies gateway write-listeners.
+     * Atomically replace the full config on disk. Caller must specify an
+     * explicit `afterWrite` policy: `"auto"` lets the gateway reload planner
+     * decide; `"restart"` forces a clean restart; `"none"` suppresses reload
+     * (caller owns the follow-up).
      */
-    writeConfigFile(
-      cfg: Record<string, unknown>,
-      options?: { envSnapshotForRestore?: Record<string, string | undefined> }
-    ): Promise<void>;
+    replaceConfigFile(params: {
+      nextConfig: Record<string, unknown>;
+      afterWrite:
+        | { mode: 'auto' }
+        | { mode: 'restart'; reason: string }
+        | { mode: 'none'; reason: string };
+      writeOptions?: { envSnapshotForRestore?: Record<string, string | undefined> };
+    }): Promise<unknown>;
   };
 }
 

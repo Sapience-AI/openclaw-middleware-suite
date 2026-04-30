@@ -281,7 +281,12 @@ export function handleHealth(
     JSON.stringify({
       status: 'ok',
       port: config.port,
-      tiers: Object.fromEntries(Object.entries(config.tiers).map(([t, c]) => [t, c.primary])),
+      tiersByProfile: Object.fromEntries(
+        Object.entries(config.tiersByProfile).map(([p, tiers]) => [
+          p,
+          Object.fromEntries(Object.entries(tiers).map(([t, c]) => [t, c.primary])),
+        ])
+      ),
       providers: Object.keys(config.providers),
       profile: config.defaultProfile,
       sessions: sessionStore?.size || 0,
@@ -442,9 +447,11 @@ async function processRequest(
   const profile = resolveProfile(req, config, isMetaModel ? requestModel : undefined);
 
   // ── Resolve effective tier config based on profile ─────────────────────
-  // Always start from config.tiers (which includes the user's overrides).
-  // Profile-based generation only fills tiers the user hasn't explicitly set.
-  const effectiveTiers = config.tiers;
+  // Per-profile tier map: each profile (eco/premium/agentic) carries its own
+  // primary/fallbacks per tier. `tiersByProfile` is fully populated by
+  // buildConfig (defaults from `PROFILE_CONFIGS` for any profile without
+  // an explicit override), so this lookup never misses.
+  const effectiveTiers = config.tiersByProfile[profile];
 
   const lastMsg = getLastUserMessage(body);
   proxyLog(reqId, 'METADATA', {
@@ -721,7 +728,7 @@ async function processRequest(
           'X-Router-Score': scoringResult.score.toFixed(4),
           'X-Router-Reason': scoringResult.reason,
         };
-        if (profile && profile !== 'auto') routerHdrs['X-Router-Profile'] = profile;
+        if (profile) routerHdrs['X-Router-Profile'] = profile;
         res.writeHead(200, routerHdrs);
       }
       safeWrite(res, ': heartbeat\n\n');
@@ -788,7 +795,7 @@ async function processRequest(
               'X-Router-Reason': scoringResult.reason,
             };
             if (fallbackFrom) routerHdrs['X-Router-Fallback-From'] = fallbackFrom;
-            if (profile && profile !== 'auto') routerHdrs['X-Router-Profile'] = profile;
+            if (profile) routerHdrs['X-Router-Profile'] = profile;
             res.writeHead(200, routerHdrs);
           }
 
@@ -1301,7 +1308,7 @@ function writeResponse(
   if (fallbackFrom) {
     routerHeaders['X-Router-Fallback-From'] = fallbackFrom;
   }
-  if (profile && profile !== 'auto') {
+  if (profile) {
     routerHeaders['X-Router-Profile'] = profile;
   }
 
@@ -1380,7 +1387,7 @@ function writeStreamedResponse(
       'X-Router-Reason': scoringResult.reason,
     };
     if (fallbackFrom) routerHeaders['X-Router-Fallback-From'] = fallbackFrom;
-    if (profile && profile !== 'auto') routerHeaders['X-Router-Profile'] = profile;
+    if (profile) routerHeaders['X-Router-Profile'] = profile;
 
     res.writeHead(200, routerHeaders);
   }
@@ -1606,8 +1613,21 @@ function tryParseError(body: Buffer): string | undefined {
  *
  * OpenClaw's openai-completions transport does NOT forward session headers, so
  * the header path almost never fires.  The content-derived ID is stable across
- * turns within the same conversation because the first user message stays the
- * same, giving us a reliable session anchor for model-pinning.
+ * turns within the same conversation as long as the first user message stays
+ * the same.
+ *
+ * Context-Editing interaction (intentional re-anchor): when CE compacts a
+ * session it rewrites the JSONL so the original first user message is no
+ * longer at index 0 of the prompt sent here. The next request therefore
+ * derives a new session ID, and all session-keyed routing state — pinned
+ * tier, momentum history, three-strike state, provider-cache locality —
+ * effectively resets. This is by design: compaction is treated as a context
+ * phase boundary, and pre-compaction routing signals are not necessarily
+ * appropriate after the conversation's character has materially changed.
+ * The matching surface signal for operators is the "Compaction completed
+ * successfully" log emitted by ContextEditingMiddleware (carrying
+ * `routingSessionWillReanchor: true`) — correlate timestamps if a pinned
+ * model appears to flip mid-conversation.
  */
 function extractSessionId(req: IncomingMessage, body?: Record<string, unknown>): string | null {
   // 1. Explicit header (ideal but rarely present from OpenClaw)
@@ -1655,7 +1675,7 @@ const PROVIDER_PREFIX = 'sai-router/';
 const LEGACY_PROVIDER_PREFIX = 'sapience-router/';
 
 /** Meta-model IDs that trigger smart routing (matched after prefix stripping). */
-const ROUTING_META_MODELS = new Set(['auto', 'eco', 'premium', 'agentic']);
+const ROUTING_META_MODELS = new Set(['eco', 'premium', 'agentic']);
 
 /**
  * Strip the "sai-router/" (or legacy "sapience-router/") prefix from a model ID if present.
@@ -1692,17 +1712,22 @@ function resolveProfile(
   // Meta-model overrides profile (e.g. model="sai-router/eco" → eco profile)
   if (requestModel) {
     const stripped = stripProviderPrefix(requestModel);
-    if (stripped !== 'auto' && isValidProfile(stripped)) {
+    if (isValidProfile(stripped)) {
       return stripped;
     }
-    // "auto" uses the config default profile
+    // Unknown / legacy meta-model (e.g. "sai-router/auto" from older clients)
+    // falls through to header-then-default-profile resolution below.
   }
 
   const headerProfile = req.headers['x-router-profile'] as string | undefined;
   if (headerProfile && isValidProfile(headerProfile)) {
     return headerProfile;
   }
-  return config.defaultProfile;
+  // Absolute fallback: programmatic consumers can set `defaultProfile` to
+  // override which profile unmatched requests route through; otherwise eco
+  // (cheapest) is the safest default.
+  const fallback: string = config.defaultProfile;
+  return isValidProfile(fallback) ? (fallback as RoutingProfile) : 'eco';
 }
 
 /**

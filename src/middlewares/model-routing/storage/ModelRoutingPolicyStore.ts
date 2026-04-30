@@ -39,8 +39,12 @@ export interface ModelRoutingPolicyData {
     standardComplex?: number;
     complexReasoning?: number;
   };
-  /** User overrides for tier-to-model mappings */
-  tierOverrides?: Partial<Record<Tier, TierModelConfig>>;
+  /** Per-profile tier-to-model mappings.
+   *  Keyed by RoutingProfile; each value is a partial Tier→TierModelConfig map.
+   *  Profiles absent from this object inherit the runtime default (built via
+   *  `buildProfileFromDiscovered` from the live model catalog). The dashboard
+   *  edits one profile's slot at a time without touching the others. */
+  tierOverridesByProfile?: Partial<Record<RoutingProfile, Partial<Record<Tier, TierModelConfig>>>>;
   /** Model exclusion list */
   exclusions?: string[];
   /** Configured provider connections */
