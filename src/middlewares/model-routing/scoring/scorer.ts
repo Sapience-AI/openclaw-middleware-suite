@@ -78,10 +78,11 @@ export function scoreRequest(
   // ── Check hard overrides first ───────────────────────────────────────────
   const override = checkOverrides(text, trieMatches, input.body, config);
   if (override) {
-    // Session startup messages are system instructions, not real user prompts.
-    // Skip tool/structured-output floors that would escalate the tier —
-    // otherwise hasTools always pushes session_startup from SIMPLE to STANDARD.
-    if (override.reason === 'session_startup') {
+    // Session startup and ICC extraction calls are internal / system signals,
+    // not real user prompts. Skip tool/structured-output floors that would
+    // escalate the tier — otherwise hasTools or "schema" keywords would push
+    // these from SIMPLE to STANDARD on every call.
+    if (override.reason === 'session_startup' || override.reason === 'icc_extraction') {
       return override;
     }
     let result = applyToolFloor(override, input.body.tools, input.body.tool_choice);

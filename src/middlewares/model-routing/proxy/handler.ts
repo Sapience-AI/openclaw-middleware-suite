@@ -49,6 +49,7 @@ import { PluginRegistry, AfterForwardEvent } from '../plugins/types.js';
 import { fetchModelCatalog, toDiscoveredModels, CatalogModel } from '../storage/model-catalog.js';
 import { normalizeDiscoveredModels } from '../providers/discovery.js';
 import { MODEL_ROUTE_PROXY_LOG, MODEL_ROUTE_COST_FILE } from '../../../shared/storage/paths.js';
+import { stripIccMarker } from '../../../shared/icc-detection.js';
 
 // ---------------------------------------------------------------------------
 // Proxy Audit Logger — detailed step-by-step request tracing
@@ -578,6 +579,45 @@ async function processRequest(
 
   proxyLog(reqId, 'FINAL_TIER', { tier: scoringResult.tier, reason: scoringResult.reason });
 
+  // ── Cost attribution source ────────────────────────────────────────────
+  // Cost ledger and budget alerts split spend by caller kind. ICC compaction
+  // calls land under `'icc'`; everything else (real user chat turns, manual
+  // tier overrides, momentum/pinning hits) lands under `'chat'`.
+  const costSource: 'chat' | 'icc' =
+    scoringResult.reason === 'icc_extraction' ? 'icc' : 'chat';
+
+  // ── Strip ICC marker before forwarding upstream ────────────────────────
+  // The marker was a signal for our scoring override only; the upstream
+  // LLM provider must not see it. Mutates the user-role message bodies
+  // in-place so the rest of the proxy (dedup hash already computed above,
+  // streaming, response cache) continues to work uniformly.
+  if (scoringResult.reason === 'icc_extraction' && Array.isArray(body.messages)) {
+    body.messages = (body.messages as Array<{ role?: string; content?: unknown }>).map((msg) => {
+      if (msg.role !== 'user') return msg;
+      if (typeof msg.content === 'string') {
+        return { ...msg, content: stripIccMarker(msg.content) };
+      }
+      if (Array.isArray(msg.content)) {
+        return {
+          ...msg,
+          content: msg.content.map((block) => {
+            if (
+              block &&
+              typeof block === 'object' &&
+              'type' in block &&
+              (block as { type?: string }).type === 'text' &&
+              typeof (block as { text?: unknown }).text === 'string'
+            ) {
+              return { ...block, text: stripIccMarker((block as { text: string }).text) };
+            }
+            return block;
+          }),
+        };
+      }
+      return msg;
+    }) as typeof body.messages;
+  }
+
   // ── Build fallback chain ───────────────────────────────────────────────
   const chain = getFallbackChain(scoringResult.tier, effectiveTiers);
   const exclusions = config.exclusions || [];
@@ -851,6 +891,7 @@ async function processRequest(
                 outputTokens: streamUsage.output,
                 cacheReadTokens: streamUsage.cacheRead,
                 cacheWriteTokens: streamUsage.cacheWrite,
+                source: costSource,
               });
               proxyLog(reqId, 'STREAM_COST_RECORDED', { ...streamUsage });
             }
@@ -973,6 +1014,7 @@ async function processRequest(
                     outputTokens: streamUsage.output,
                     cacheReadTokens: streamUsage.cacheRead,
                     cacheWriteTokens: streamUsage.cacheWrite,
+                    source: costSource,
                   });
                   proxyLog(reqId, 'STREAM_COST_RECORDED', { ...streamUsage });
                 }
@@ -1111,6 +1153,7 @@ async function processRequest(
       outputTokens: responseOutputTokens,
       cacheReadTokens: responseCacheReadTokens,
       cacheWriteTokens: responseCacheWriteTokens,
+      source: costSource,
     });
   }
   const costEstimateUsd = costTracker

@@ -42,6 +42,7 @@ import {
 } from '../../types.js';
 import { logger } from '../../shared/Logger.js';
 import { getOpenclawHome, getOpenclawDir } from '../../shared/env.js';
+import { isSessionStartupMessage } from '../../shared/session-detection.js';
 import { TriggerEvaluator } from './TriggerEvaluator.js';
 import { ContextCurator } from './ContextCurator.js';
 import { SessionAdapter } from './SessionAdapter.js';
@@ -713,9 +714,7 @@ export class ContextEditingMiddleware implements Middleware {
       const m = rawMessages[i] as Record<string, unknown>;
       if (
         m.role === 'user' &&
-        this.extractTextFromMessage(m)
-          .trim()
-          .startsWith('A new session was started via /new or /reset')
+        isSessionStartupMessage(this.extractTextFromMessage(m))
       ) {
         let j = i + 1;
         while (

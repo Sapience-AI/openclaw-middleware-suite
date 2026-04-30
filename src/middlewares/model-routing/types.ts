@@ -36,7 +36,8 @@ export type ScoringReason =
   | 'session_pinned'
   | 'three_strike'
   | 'structured_output'
-  | 'session_startup';
+  | 'session_startup'
+  | 'icc_extraction';
 
 export interface DimensionScore {
   name: string;

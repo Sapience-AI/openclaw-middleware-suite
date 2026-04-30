@@ -983,6 +983,12 @@
 .mt-24 { margin-top: 24px; }
 .mb-16 { margin-bottom: 16px; }
 
+/* Spinner used by refresh-style buttons (Model Routing page header). */
+@keyframes sai-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 @media (max-width: 1024px) {
   .grid-4 { grid-template-columns: repeat(2, 1fr); }
   .grid-3 { grid-template-columns: repeat(2, 1fr); }

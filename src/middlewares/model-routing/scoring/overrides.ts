@@ -21,7 +21,8 @@
 import { ScoringResult, ScoringConfig, TIER_ORDER } from '../types.js';
 import { TrieMatch } from './keyword-trie.js';
 import { estimateTotalTokens, ExtractionInput } from './text-extractor.js';
-import { isSessionStartupMessage } from './session-detection.js';
+import { isSessionStartupMessage } from '../../../shared/session-detection.js';
+import { isIccExtractionCall } from '../../../shared/icc-detection.js';
 
 /**
  * Attempt to classify via hard overrides before running the full scorer.
@@ -41,7 +42,24 @@ export function checkOverrides(
 ): ScoringResult | null {
   const { overrides } = config;
 
-  // ── 0. Session startup message ──────────────────────────────────────────
+  // ── 0a. Context Editing ICC extraction call ─────────────────────────────
+  // CE prepends ICC_EXTRACTION_MARKER to its compaction-extraction prompts
+  // (see src/shared/icc-detection.ts). Without this branch, MR would score
+  // the transcript content the user is compacting and routinely route the
+  // call to the user's most expensive tier — wrong on every axis (the job
+  // is fixed-shape JSON extraction, not user-facing chat). Force SIMPLE
+  // and short-circuit before scoring runs at all.
+  if (isIccExtractionCall(text)) {
+    return {
+      tier: 'SIMPLE',
+      score: -0.5,
+      confidence: 1.0,
+      reason: 'icc_extraction',
+      dimensions: [],
+    };
+  }
+
+  // ── 0b. Session startup message ─────────────────────────────────────────
   // OpenClaw injects a generic message when user types /new or /reset.
   // This is a system instruction, not a real user prompt — always SIMPLE.
   if (isSessionStartupMessage(text)) {

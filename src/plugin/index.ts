@@ -103,18 +103,33 @@ export const SapienceMiddlewareManifest: SapienceMiddlewarePluginManifest = {
 // All methods are optional — the gateway may not support all of them.
 // ---------------------------------------------------------------------------
 
-/** Subset of the OpenClaw plugin runtime used by Sapience Middleware. */
+/**
+ * Subset of the OpenClaw plugin runtime used by Sapience Middleware.
+ *
+ * All methods are optional because the runtime surface differs across
+ * supported gateway versions:
+ *
+ *   - openclaw 2026.4.11 – 2026.4.26: only `loadConfig` / `writeConfigFile`
+ *     are available. The new APIs (`current`, `replaceConfigFile`) were
+ *     introduced in 2026.4.27.
+ *   - openclaw >= 2026.4.27: all four are present, but `loadConfig` and
+ *     `writeConfigFile` are deprecation shims (compat code
+ *     `runtime-config-load-write`) that delegate to the new APIs.
+ *
+ * Callers MUST feature-detect (prefer the new APIs, fall back to the
+ * deprecated ones) instead of assuming a fixed shape.
+ */
 export interface OpenClawRuntime {
   config: {
-    /** Returns the current OpenClaw config (process-global cached snapshot, readonly). */
-    current(): Record<string, unknown>;
+    /** New (openclaw >= 2026.4.27): readonly snapshot of the live config. */
+    current?(): Record<string, unknown>;
     /**
-     * Atomically replace the full config on disk. Caller must specify an
-     * explicit `afterWrite` policy: `"auto"` lets the gateway reload planner
-     * decide; `"restart"` forces a clean restart; `"none"` suppresses reload
-     * (caller owns the follow-up).
+     * New (openclaw >= 2026.4.27): atomic replace with explicit `afterWrite`
+     * policy. `"auto"` lets the gateway reload planner decide; `"restart"`
+     * forces a clean restart; `"none"` suppresses reload (caller owns
+     * the follow-up).
      */
-    replaceConfigFile(params: {
+    replaceConfigFile?(params: {
       nextConfig: Record<string, unknown>;
       afterWrite:
         | { mode: 'auto' }
@@ -122,6 +137,13 @@ export interface OpenClawRuntime {
         | { mode: 'none'; reason: string };
       writeOptions?: { envSnapshotForRestore?: Record<string, string | undefined> };
     }): Promise<unknown>;
+    /** Deprecated since openclaw 2026.4.27, still functional. Use `current` instead. */
+    loadConfig?(): Record<string, unknown>;
+    /** Deprecated since openclaw 2026.4.27, still functional. Use `replaceConfigFile` instead. */
+    writeConfigFile?(
+      cfg: Record<string, unknown>,
+      options?: { envSnapshotForRestore?: Record<string, string | undefined> }
+    ): Promise<void>;
   };
 }
 

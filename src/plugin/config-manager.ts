@@ -105,16 +105,26 @@ export async function isOpenClawInstalled(): Promise<boolean> {
  */
 export async function loadOpenClawConfig(): Promise<OpenClawConfig | null> {
   // Gateway context — use the runtime's cached config snapshot.
-  // `current()` returns a readonly snapshot; deep-clone so callers
-  // (flushToOpenClaw, cleanOpenclawConfig) can mutate it.
+  // Prefer `current()` (openclaw >= 2026.4.27); fall back to the deprecated
+  // `loadConfig()` for older gateways (2026.4.11 – 2026.4.26). Both return
+  // a frozen/readonly snapshot, so deep-clone before returning to callers
+  // (flushToOpenClaw, cleanOpenclawConfig) that need to mutate.
   if (_runtime) {
     try {
-      const snapshot = _runtime.config.current();
-      return JSON.parse(JSON.stringify(snapshot)) as OpenClawConfig;
+      const snapshot =
+        typeof _runtime.config.current === 'function'
+          ? _runtime.config.current()
+          : typeof _runtime.config.loadConfig === 'function'
+            ? _runtime.config.loadConfig()
+            : null;
+      if (snapshot) {
+        return JSON.parse(JSON.stringify(snapshot)) as OpenClawConfig;
+      }
     } catch (err) {
-      logger.warn('[config-manager] runtime.config.current() failed, falling back to file I/O', {
-        error: err,
-      });
+      logger.warn(
+        '[config-manager] runtime config snapshot read failed, falling back to file I/O',
+        { error: err }
+      );
     }
   }
 
@@ -138,23 +148,33 @@ export async function loadOpenClawConfig(): Promise<OpenClawConfig | null> {
  * to file I/O when running from the CLI.
  */
 export async function saveOpenClawConfig(config: OpenClawConfig): Promise<void> {
-  // Gateway context — use atomic replaceConfigFile with auto-reload policy.
-  // `afterWrite: { mode: "auto" }` defers to the gateway reload planner so
-  // changes that can hot-reload do, and changes that need restart do.
+  // Gateway context — atomic write with backup rotation, schema validation,
+  // and listener notification.
+  //
+  // Prefer `replaceConfigFile({ afterWrite: "auto" })` on openclaw >= 2026.4.27
+  // (the "auto" policy defers reload-vs-restart to the gateway's reload planner,
+  // matching the old `writeConfigFile` behavior). Fall back to the deprecated
+  // `writeConfigFile()` for older gateways (2026.4.11 – 2026.4.26) where the
+  // new API doesn't exist yet.
   if (_runtime) {
     try {
-      await _runtime.config.replaceConfigFile({
-        nextConfig: config as Record<string, unknown>,
-        afterWrite: { mode: 'auto' },
-      });
-      logger.info('OpenClaw config saved via runtime API');
-      return;
+      if (typeof _runtime.config.replaceConfigFile === 'function') {
+        await _runtime.config.replaceConfigFile({
+          nextConfig: config as Record<string, unknown>,
+          afterWrite: { mode: 'auto' },
+        });
+        logger.info('OpenClaw config saved via runtime API (replaceConfigFile)');
+        return;
+      }
+      if (typeof _runtime.config.writeConfigFile === 'function') {
+        await _runtime.config.writeConfigFile(config as Record<string, unknown>);
+        logger.info('OpenClaw config saved via runtime API (writeConfigFile, deprecated)');
+        return;
+      }
     } catch (err) {
       logger.warn(
-        '[config-manager] runtime.config.replaceConfigFile() failed, falling back to file I/O',
-        {
-          error: err,
-        }
+        '[config-manager] runtime config write failed, falling back to file I/O',
+        { error: err }
       );
     }
   }
@@ -312,7 +332,13 @@ export function getPluginMiddlewaresConfigSync(): Record<string, boolean> {
 
     if (_runtime) {
       try {
-        config = _runtime.config.current();
+        // Prefer current() (openclaw >= 2026.4.27); fall back to
+        // deprecated loadConfig() for older gateways.
+        if (typeof _runtime.config.current === 'function') {
+          config = _runtime.config.current();
+        } else if (typeof _runtime.config.loadConfig === 'function') {
+          config = _runtime.config.loadConfig();
+        }
       } catch {
         // fall through to file I/O
       }

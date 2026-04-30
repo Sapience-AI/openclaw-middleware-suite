@@ -41,6 +41,7 @@ export function ModelRoutingPage(_props: { path?: string }) {
   const [audit, setAudit] = useState<unknown[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<'overview' | 'config' | 'logs'>('overview');
+  const [refreshing, setRefreshing] = useState(false);
   // Which profile the config form is currently editing. Independent of any
   // global "default profile" — each profile has its own persisted tier slot
   // in `config.tierOverridesByProfile`, and switching this dropdown swaps
@@ -48,16 +49,32 @@ export function ModelRoutingPage(_props: { path?: string }) {
   const [editingProfile, setEditingProfile] = useState<Profile>('eco');
   const enabled = useMiddlewareEnabled('model-routing');
 
-  useEffect(() => {
-    Promise.all([
+  // Re-fetch every panel of routing data. Used both at mount and from the
+  // explicit refresh button on the Overview tab. Errors per-endpoint are
+  // swallowed so a single failing fetch doesn't leave the whole page blank.
+  const loadAll = async () => {
+    await Promise.all([
       fetchRoutingStats().then(setStats).catch(() => {}),
       fetchRoutingConfig().then(setConfig).catch(() => {}),
       fetchRoutingModels().then(setModels).catch(() => {}),
       fetchRoutingProviders().then(setProviders).catch(() => {}),
       fetchRoutingCost().then(setCostData).catch(() => {}),
       fetchRoutingAudit(100).then(setAudit).catch(() => {}),
-    ]).finally(() => setLoading(false));
+    ]);
+  };
+
+  useEffect(() => {
+    loadAll().finally(() => setLoading(false));
   }, []);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await loadAll();
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   // Tier configuration for the *currently edited* profile. Each profile has
   // its own slot in `tierOverridesByProfile`; missing slots fall back to
@@ -81,6 +98,10 @@ export function ModelRoutingPage(_props: { path?: string }) {
   // Build form fields dynamically (need model catalog for dropdowns).
   // The profile selector is rendered outside ConfigForm (parent-level state)
   // so changing it remounts the form with the new profile's tier values.
+  // Tier dropdowns are visually nested under the profile selector (`indent: true`)
+  // to make it clear they're per-profile mappings, mirroring the indent the
+  // Context Editing config page uses for `pruning.maxIdleHours` under
+  // "Inactive Session Pruning".
   const routingFields: FormField[] = [
     ...TIERS.map((tier): FormField => ({
       key: `_tier_${tier}`,
@@ -88,6 +109,7 @@ export function ModelRoutingPage(_props: { path?: string }) {
       description: `Model used for ${tier.toLowerCase()}-complexity requests.`,
       type: 'dropdown',
       options: modelOptions,
+      indent: true,
     })),
     {
       key: '_fallback',
@@ -146,7 +168,10 @@ export function ModelRoutingPage(_props: { path?: string }) {
   const chartData = buildCostChartData(costData);
 
   // Audit columns map to RoutingAuditEntry fields as written by RoutingAuditLog
-  // (types.ts: ts, tier, model, score, latencyMs, ...)
+  // (types.ts: ts, tier, model, score, confidence, reason, latencyMs, ...).
+  // The `reason` column is the same value `sai router stats` prints in its
+  // "Reason" column — surfacing it here keeps the dashboard readout consistent
+  // with the CLI so users can correlate routing decisions across both surfaces.
   const auditColumns = [
     {
       key: 'ts',
@@ -156,15 +181,34 @@ export function ModelRoutingPage(_props: { path?: string }) {
     { key: 'tier', label: 'Tier' },
     { key: 'model', label: 'Model', mono: true },
     { key: 'score', label: 'Score', render: (v: unknown) => typeof v === 'number' ? v.toFixed(2) : '-' },
+    {
+      key: 'confidence',
+      label: 'Conf',
+      render: (v: unknown) => (typeof v === 'number' ? v.toFixed(2) : '-'),
+    },
+    { key: 'reason', label: 'Reason', render: (v: unknown) => (typeof v === 'string' ? v : '-') },
     { key: 'latencyMs', label: 'Latency', render: (v: unknown) => typeof v === 'number' ? `${v}ms` : '-' },
   ];
+
+  // Per-source spend for today (chat vs icc), pulled from DailyCost.bySource
+  // written by CostTracker.record(). The cost-attribution + per-source budget
+  // changes added these counters; surfacing them here makes ICC compaction
+  // spend visible on the same page as the routing tier breakdown.
+  const todayBySource = computeTodayBySource(costData);
+  // Active per-source budget thresholds — reads `costAlerts.budgets` from the
+  // policy store. May be empty when the user hasn't configured budgets and
+  // the runtime defaults haven't been mirrored to the persisted config yet.
+  const sourceBudgets =
+    ((config.costAlerts as Record<string, unknown> | undefined)?.budgets as
+      | Record<string, { dailyWarn?: number; dailyCritical?: number }>
+      | undefined) || {};
 
   return (
     <div>
       <div class="section-eyebrow">Middleware</div>
       <h1 class="section-title">Model Routing</h1>
 
-      {/* Tabs */}
+      {/* Tabs + Refresh */}
       <div class="flex-between mb-16">
         <div style={{ display: 'flex', gap: '4px' }}>
           {(['overview', 'config', 'logs'] as const).map((t) => (
@@ -178,6 +222,31 @@ export function ModelRoutingPage(_props: { path?: string }) {
             </button>
           ))}
         </div>
+        <button
+          class="btn-secondary btn-sm"
+          onClick={handleRefresh}
+          disabled={loading || refreshing}
+          title="Re-fetch stats, config, cost, and audit log"
+          aria-label="Refresh routing data"
+        >
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              style={refreshing ? { animation: 'sai-spin 0.9s linear infinite' } : undefined}
+            >
+              <path d="M1 4v6h6" />
+              <path d="M3.51 15a9 9 0 105.64-12.36L3 9" />
+            </svg>
+            {refreshing ? 'Refreshing…' : 'Refresh'}
+          </span>
+        </button>
       </div>
 
       {loading && (
@@ -233,14 +302,42 @@ export function ModelRoutingPage(_props: { path?: string }) {
             </div>
           </div>
 
-          {/* Cost chart */}
+          {/* Cost chart — daily totals are categorical buckets, so render as bars */}
           <div class="page-section">
             <Chart
               title="Routing Cost (24h)"
               data={chartData}
               height={220}
+              bars
             />
           </div>
+
+          {/* Cost source attribution + per-source budgets — surfaces the
+              chat / icc split written by CostTracker.record(). Budget bars
+              are hidden when no per-source threshold is configured. */}
+          {(todayBySource.chat || todayBySource.icc) && (
+            <div class="page-section">
+              <div class="page-section-title">Cost Sources Today</div>
+              <div class="grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                <SourceCostCard
+                  source="chat"
+                  label="Chat"
+                  description="User-facing turns + manual tier overrides."
+                  spend={todayBySource.chat || 0}
+                  requestCount={todayBySource.chatRequests || 0}
+                  budget={sourceBudgets.chat}
+                />
+                <SourceCostCard
+                  source="icc"
+                  label="ICC Compaction"
+                  description="Context Editing's compaction-extraction calls."
+                  spend={todayBySource.icc || 0}
+                  requestCount={todayBySource.iccRequests || 0}
+                  budget={sourceBudgets.icc}
+                />
+              </div>
+            </div>
+          )}
 
           {/* Providers */}
           {providerList.length > 0 && (
@@ -288,34 +385,35 @@ export function ModelRoutingPage(_props: { path?: string }) {
 
       {!loading && tab === 'config' && (
         <div class="page-section">
-          <div style={{ marginBottom: '16px' }}>
-            <label
-              style={{
-                display: 'block',
-                fontSize: '13px',
-                fontWeight: 500,
-                marginBottom: '6px',
-                color: 'var(--sai-text)',
-              }}
-            >
-              Editing profile
-            </label>
-            <div style={{ fontSize: '12px', color: 'var(--sai-text-muted)', marginBottom: '8px' }}>
-              Pick which routing profile's tier mappings you want to edit. All three profiles
-              are always exposed in the OpenClaw model picker \u2014 selecting one here just chooses
-              which profile's saved configuration the form below operates on.
+          {/* Editing-profile selector \u2014 uses the same .config-field row
+              layout as the form fields below (info on left, control right-
+              aligned) so the visual rhythm of the page stays consistent.
+              The selector lives outside <ConfigForm> so changing it remounts
+              the form via `key={editingProfile}` and the tier dropdowns
+              re-seed from the new profile's saved values. */}
+          <div class="config-field">
+            <div class="config-field-row">
+              <div class="config-field-info">
+                <label class="config-field-label">Editing profile</label>
+                <div class="config-field-desc">
+                  Pick which routing profile's tier mappings you want to edit.
+                </div>
+              </div>
+              <div class="config-field-control">
+                <select
+                  class="form-select"
+                  value={editingProfile}
+                  disabled={enabled === false}
+                  onChange={(e) =>
+                    setEditingProfile((e.target as HTMLSelectElement).value as Profile)
+                  }
+                >
+                  <option value="eco">Eco \u2014 Prefer cheaper models</option>
+                  <option value="premium">Premium \u2014 Prefer top-tier models</option>
+                  <option value="agentic">Agentic \u2014 Optimized for agent workloads</option>
+                </select>
+              </div>
             </div>
-            <select
-              value={editingProfile}
-              disabled={enabled === false}
-              onChange={(e) => setEditingProfile((e.target as HTMLSelectElement).value as Profile)}
-              class="config-form-input"
-              style={{ maxWidth: '420px' }}
-            >
-              <option value="eco">Eco \u2014 Prefer cheaper models</option>
-              <option value="premium">Premium \u2014 Prefer top-tier models</option>
-              <option value="agentic">Agentic \u2014 Optimized for agent workloads</option>
-            </select>
           </div>
 
           <ConfigForm
@@ -421,4 +519,119 @@ function buildCostChartData(costData: unknown): [number[], number[]] {
   }
 
   return [timestamps, values];
+}
+
+// Pull today's per-source spend from the persisted DailyCost array. Reads
+// the `bySource` map written by CostTracker.record() (storage/cost-tracker.ts);
+// returns zeros for any source the day's record doesn't have. Decoupled from
+// the chart-data builder above so the bySource logic doesn't get tangled in
+// the legacy-envelope handling.
+function computeTodayBySource(costData: unknown): {
+  chat: number;
+  icc: number;
+  chatRequests: number;
+  iccRequests: number;
+} {
+  const empty = { chat: 0, icc: 0, chatRequests: 0, iccRequests: 0 };
+  let entries: Array<Record<string, unknown>> = [];
+  if (Array.isArray(costData)) {
+    entries = costData as Array<Record<string, unknown>>;
+  } else if (costData && typeof costData === 'object') {
+    const wrapped = costData as Record<string, unknown>;
+    if (Array.isArray(wrapped.entries)) entries = wrapped.entries as Array<Record<string, unknown>>;
+  }
+  if (entries.length === 0) return empty;
+
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const today = entries.find((e) => e.date === todayStr) ?? entries[entries.length - 1];
+  const bySource = (today?.bySource as Record<string, { costUsd?: number; requestCount?: number }>) || {};
+  return {
+    chat: bySource.chat?.costUsd ?? 0,
+    icc: bySource.icc?.costUsd ?? 0,
+    chatRequests: bySource.chat?.requestCount ?? 0,
+    iccRequests: bySource.icc?.requestCount ?? 0,
+  };
+}
+
+// Renders one source's daily spend with optional warn/critical budget bars.
+// Color shifts (green → amber → red) when spend crosses each threshold so a
+// runaway compaction loop is visible at a glance without reading numbers.
+function SourceCostCard(props: {
+  source: 'chat' | 'icc';
+  label: string;
+  description: string;
+  spend: number;
+  requestCount: number;
+  budget?: { dailyWarn?: number; dailyCritical?: number };
+}) {
+  const { label, description, spend, requestCount, budget } = props;
+  const warn = budget?.dailyWarn;
+  const critical = budget?.dailyCritical;
+
+  // Bar fill: cap at 100% of the *highest* threshold present so the meter
+  // gives a sense of headroom. Without any budget, render a flat info card.
+  const cap = critical ?? warn;
+  const pct = cap && cap > 0 ? Math.min(100, (spend / cap) * 100) : 0;
+  const status: 'ok' | 'warn' | 'critical' =
+    typeof critical === 'number' && spend >= critical
+      ? 'critical'
+      : typeof warn === 'number' && spend >= warn
+        ? 'warn'
+        : 'ok';
+  const barColor =
+    status === 'critical' ? '#b3261e' : status === 'warn' ? '#a96b00' : '#674C67';
+
+  return (
+    <div class="stat-card" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+      <div class="stat-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+        <span>{label}</span>
+        <span style={{ fontSize: '11px', color: 'var(--sai-text-muted)' }}>
+          {requestCount} {requestCount === 1 ? 'request' : 'requests'}
+        </span>
+      </div>
+      <div class="stat-value" style={{ color: barColor }}>${spend.toFixed(4)}</div>
+      <div style={{ fontSize: '12px', color: 'var(--sai-text-muted)' }}>{description}</div>
+      {cap ? (
+        <div style={{ marginTop: '4px' }}>
+          <div
+            style={{
+              height: '6px',
+              borderRadius: '3px',
+              background: 'rgba(196, 181, 208, 0.18)',
+              overflow: 'hidden',
+            }}
+          >
+            <div
+              style={{
+                width: `${pct}%`,
+                height: '100%',
+                background: barColor,
+                transition: 'width 200ms ease',
+              }}
+            />
+          </div>
+          <div
+            style={{
+              marginTop: '4px',
+              fontSize: '11px',
+              color: 'var(--sai-text-muted)',
+              display: 'flex',
+              justifyContent: 'space-between',
+            }}
+          >
+            <span>
+              {typeof warn === 'number' ? `Warn $${warn.toFixed(2)}` : 'No warn budget'}
+            </span>
+            <span>
+              {typeof critical === 'number' ? `Critical $${critical.toFixed(2)}` : ''}
+            </span>
+          </div>
+        </div>
+      ) : (
+        <div style={{ fontSize: '11px', color: 'var(--sai-text-muted)' }}>
+          No per-source budget configured.
+        </div>
+      )}
+    </div>
+  );
 }

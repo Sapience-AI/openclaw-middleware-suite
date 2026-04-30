@@ -16,9 +16,17 @@ interface ChartProps {
   data: uPlot.AlignedData;
   options?: Partial<uPlot.Options>;
   height?: number;
+  /**
+   * Render the (single) value series as bars instead of the default
+   * filled line. Used for the routing cost chart, where daily totals
+   * are categorical buckets (one bar per day) rather than a continuous
+   * series. The x-axis still carries timestamps; bars are sized to a
+   * fixed fraction of the inter-point gap.
+   */
+  bars?: boolean;
 }
 
-export function Chart({ title, data, options, height = 200 }: ChartProps) {
+export function Chart({ title, data, options, height = 200, bars }: ChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<uPlot | null>(null);
 
@@ -31,6 +39,27 @@ export function Chart({ title, data, options, height = 200 }: ChartProps) {
     }
 
     if (data[0].length === 0) return;
+
+    // When `bars` is set, route the value series through uPlot's
+    // built-in bars path renderer. `size: [factor]` keeps the bar
+    // width as a fraction of available column width so bars remain
+    // visible whether the chart shows 3 or 30 days.
+    const valueSeries: uPlot.Series = bars
+      ? {
+          stroke: '#674C67',
+          fill: 'rgba(103, 76, 103, 0.55)',
+          width: 1,
+          label: 'Value',
+          paths: uPlot.paths.bars
+            ? uPlot.paths.bars({ size: [0.6, 80] })
+            : undefined,
+        }
+      : {
+          stroke: '#674C67',
+          fill: 'rgba(103, 76, 103, 0.08)',
+          width: 2,
+          label: 'Value',
+        };
 
     const defaultOpts: uPlot.Options = {
       width,
@@ -54,15 +83,7 @@ export function Chart({ title, data, options, height = 200 }: ChartProps) {
           font: '12px Inter',
         },
       ],
-      series: [
-        {},
-        {
-          stroke: '#674C67',
-          fill: 'rgba(103, 76, 103, 0.08)',
-          width: 2,
-          label: 'Value',
-        },
-      ],
+      series: [{}, valueSeries],
       ...options,
     };
 
@@ -82,7 +103,7 @@ export function Chart({ title, data, options, height = 200 }: ChartProps) {
       observer.disconnect();
       chartRef.current?.destroy();
     };
-  }, [data, height]);
+  }, [data, height, bars]);
 
   return (
     <div class="chart-wrap">

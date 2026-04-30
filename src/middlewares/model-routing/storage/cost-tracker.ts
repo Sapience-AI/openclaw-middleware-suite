@@ -28,19 +28,50 @@ import type { DiscoveredModel } from '../types.js';
 // Configuration
 // ---------------------------------------------------------------------------
 
+/**
+ * Per-source budget thresholds. A "source" labels the caller of an LLM
+ * request — currently `chat` (user-facing turns) or `icc` (CE compaction
+ * extraction). Each source can have its own warn/critical thresholds so
+ * a runaway compaction loop can't drain the chat budget and vice versa.
+ *
+ * Both fields are optional. If absent, no per-source alerting fires for
+ * that source — the aggregate `warnThresholdUsd` / `criticalThresholdUsd`
+ * still applies.
+ */
+export interface SourceBudget {
+  /** Per-source daily warning threshold (USD). */
+  dailyWarn?: number;
+  /** Per-source daily critical threshold (USD). */
+  dailyCritical?: number;
+}
+
+/** Known sources for cost attribution. Open string union for future caller kinds. */
+export type CostSource = 'chat' | 'icc' | (string & {});
+
 export interface CostAlertConfig {
   /** Whether cost tracking is enabled */
   enabled: boolean;
-  /** Daily spend warning threshold (USD) */
+  /** Daily spend warning threshold (USD) — applies across all sources combined. */
   warnThresholdUsd: number;
-  /** Daily spend critical threshold (USD) */
+  /** Daily spend critical threshold (USD) — applies across all sources combined. */
   criticalThresholdUsd: number;
+  /**
+   * Optional per-source budgets. Keyed by source name (`'chat'`, `'icc'`, …).
+   * Sources without an entry are tracked but not alerted on individually.
+   */
+  budgets?: Partial<Record<CostSource, SourceBudget>>;
 }
 
 export const DEFAULT_COST_ALERT_CONFIG: CostAlertConfig = {
   enabled: true,
   warnThresholdUsd: 5.0,
   criticalThresholdUsd: 20.0,
+  budgets: {
+    // Sensible default: ICC compaction shouldn't be a meaningful share of
+    // the daily bill. A separate $1/$5 budget makes a runaway compaction
+    // loop visible without affecting normal chat alerting.
+    icc: { dailyWarn: 1.0, dailyCritical: 5.0 },
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -85,11 +116,23 @@ export interface ModelCostEntry {
   cacheWriteTokens: number;
 }
 
+/** Per-source daily totals within a `DailyCost` entry. */
+export interface SourceCostEntry {
+  costUsd: number;
+  requestCount: number;
+  /** Whether the per-source warn alert has already fired today. */
+  warnFired: boolean;
+  /** Whether the per-source critical alert has already fired today. */
+  criticalFired: boolean;
+}
+
 interface DailyCost {
   date: string; // YYYY-MM-DD
   totalUsd: number;
   requestCount: number;
   byModel: Record<string, ModelCostEntry>;
+  /** Per-source daily totals + per-source alert latches. */
+  bySource?: Record<string, SourceCostEntry>;
   warnFired: boolean;
   criticalFired: boolean;
 }
@@ -107,6 +150,11 @@ export interface CostEvent {
   /** Cache write/creation tokens (Anthropic: cache_creation_input_tokens) */
   cacheWriteTokens?: number;
   timestamp?: number;
+  /**
+   * Caller kind — used for per-source attribution and budgeting.
+   * Defaults to `'chat'` when omitted (legacy callers, raw user requests).
+   */
+  source?: CostSource;
 }
 
 // ---------------------------------------------------------------------------
@@ -197,8 +245,25 @@ export class CostTracker {
     modelEntry.cacheReadTokens += event.cacheReadTokens ?? 0;
     modelEntry.cacheWriteTokens += event.cacheWriteTokens ?? 0;
 
-    // Check alert thresholds
+    // Per-source bucket — defaults to 'chat' for legacy callers that
+    // don't supply a source.
+    const source: CostSource = event.source ?? 'chat';
+    if (!daily.bySource) daily.bySource = {};
+    if (!daily.bySource[source]) {
+      daily.bySource[source] = {
+        costUsd: 0,
+        requestCount: 0,
+        warnFired: false,
+        criticalFired: false,
+      };
+    }
+    const sourceEntry = daily.bySource[source];
+    sourceEntry.costUsd += totalCostUsd;
+    sourceEntry.requestCount++;
+
+    // Check alert thresholds (aggregate + per-source)
     this.checkAlerts(daily);
+    this.checkSourceAlerts(daily, source, sourceEntry);
 
     // Evict old days (keep last 90)
     this.evictOldDays(90);
@@ -370,6 +435,45 @@ export class CostTracker {
       logger.warn(
         `[model-routing] WARNING: Daily spend $${daily.totalUsd.toFixed(2)} ` +
           `exceeds warning threshold $${this.config.warnThresholdUsd.toFixed(2)}`
+      );
+    }
+  }
+
+  /**
+   * Per-source alerting. Fires once per source per day at the warn threshold
+   * and once at the critical threshold. Independent of the aggregate alert
+   * — both can fire on the same call when totals cross both lines.
+   */
+  private checkSourceAlerts(
+    daily: DailyCost,
+    source: CostSource,
+    entry: SourceCostEntry,
+  ): void {
+    if (!this.config.enabled) return;
+    const budget = this.config.budgets?.[source];
+    if (!budget) return;
+
+    if (
+      typeof budget.dailyCritical === 'number' &&
+      entry.costUsd >= budget.dailyCritical &&
+      !entry.criticalFired
+    ) {
+      entry.criticalFired = true;
+      logger.warn(
+        `[model-routing] CRITICAL [${source}]: Daily spend $${entry.costUsd.toFixed(2)} ` +
+          `exceeds ${source} critical threshold $${budget.dailyCritical.toFixed(2)} ` +
+          `(${entry.requestCount} requests on ${daily.date})`,
+      );
+    } else if (
+      typeof budget.dailyWarn === 'number' &&
+      entry.costUsd >= budget.dailyWarn &&
+      !entry.warnFired
+    ) {
+      entry.warnFired = true;
+      logger.warn(
+        `[model-routing] WARNING [${source}]: Daily spend $${entry.costUsd.toFixed(2)} ` +
+          `exceeds ${source} warning threshold $${budget.dailyWarn.toFixed(2)} ` +
+          `(${entry.requestCount} requests on ${daily.date})`,
       );
     }
   }
