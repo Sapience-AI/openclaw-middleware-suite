@@ -19,7 +19,6 @@ import {
 } from '../services/api';
 import { StatCard } from '../components/StatCard';
 import { DataTable } from '../components/DataTable';
-import { LogViewer } from '../components/LogViewer';
 import { Chart } from '../components/Chart';
 import { ConfigForm, FormField } from '../components/ConfigForm';
 import { formatNumber, formatTimestamp } from '../services/formatters';
@@ -95,6 +94,23 @@ export function ModelRoutingPage(_props: { path?: string }) {
     })),
   ];
 
+  // Pricing lookup map for the audit table's `$/1M in` and `$/1M out`
+  // columns — keyed by every alias each discovered model exposes (id,
+  // name, model_name) so audit rows whose `model` field captured any of
+  // those forms can find their rates. Values come from the LiteLLM
+  // catalog's `input_cost_per_token` / `output_cost_per_token` fields,
+  // already converted to `$/1M` by the discovery pipeline.
+  const pricingByModel = new Map<string, { input?: number; output?: number }>();
+  for (const m of (models || []) as Array<Record<string, unknown>>) {
+    const entry = {
+      input: typeof m.inputPrice === 'number' ? (m.inputPrice as number) : undefined,
+      output: typeof m.outputPrice === 'number' ? (m.outputPrice as number) : undefined,
+    };
+    for (const alias of [m.id, m.name, m.model_name]) {
+      if (typeof alias === 'string' && alias) pricingByModel.set(alias, entry);
+    }
+  }
+
   // Build form fields dynamically (need model catalog for dropdowns).
   // The profile selector is rendered outside ConfigForm (parent-level state)
   // so changing it remounts the form with the new profile's tier values.
@@ -168,10 +184,15 @@ export function ModelRoutingPage(_props: { path?: string }) {
   const chartData = buildCostChartData(costData);
 
   // Audit columns map to RoutingAuditEntry fields as written by RoutingAuditLog
-  // (types.ts: ts, tier, model, score, confidence, reason, latencyMs, ...).
-  // The `reason` column is the same value `sai router stats` prints in its
-  // "Reason" column — surfacing it here keeps the dashboard readout consistent
-  // with the CLI so users can correlate routing decisions across both surfaces.
+  // (types.ts: ts, tier, model, score, confidence, reason, latencyMs, plus
+  // per-request token + cost split: inputTokens, outputTokens,
+  // cacheReadTokens, cacheWriteTokens, inputCostUsd, outputCostUsd).
+  //
+  // Layout mirrors the CLI's "Last N Routing Decisions" + "Cost by Model"
+  // tables that `sai router stats` prints, so users can correlate decisions
+  // across both surfaces. `$/1M in` and `$/1M out` are derived effective
+  // rates per row (cost ÷ tokens × 1M); they reflect what was actually
+  // charged, accounting for any cache-hit discounts.
   const auditColumns = [
     {
       key: 'ts',
@@ -180,15 +201,57 @@ export function ModelRoutingPage(_props: { path?: string }) {
     },
     { key: 'tier', label: 'Tier' },
     { key: 'model', label: 'Model', mono: true },
-    { key: 'score', label: 'Score', render: (v: unknown) => typeof v === 'number' ? v.toFixed(2) : '-' },
+    {
+      key: 'score',
+      label: 'Score',
+      render: (v: unknown) => (typeof v === 'number' ? v.toFixed(2) : '-'),
+    },
     {
       key: 'confidence',
       label: 'Conf',
       render: (v: unknown) => (typeof v === 'number' ? v.toFixed(2) : '-'),
     },
     { key: 'reason', label: 'Reason', render: (v: unknown) => (typeof v === 'string' ? v : '-') },
-    { key: 'latencyMs', label: 'Latency', render: (v: unknown) => typeof v === 'number' ? `${v}ms` : '-' },
+    {
+      key: 'latencyMs',
+      label: 'Latency',
+      render: (v: unknown) => (typeof v === 'number' ? `${v}ms` : '-'),
+    },
+    { key: 'inputTokens', label: 'Input', render: (v: unknown) => formatTokenCount(v) },
+    { key: 'outputTokens', label: 'Output', render: (v: unknown) => formatTokenCount(v) },
+    { key: 'cacheReadTokens', label: 'Cache R', render: (v: unknown) => formatTokenCount(v) },
+    { key: 'cacheWriteTokens', label: 'Cache W', render: (v: unknown) => formatTokenCount(v) },
+    { key: 'inputCostUsd', label: 'In Cost', render: (v: unknown) => formatUsd(v, 6) },
+    { key: 'outputCostUsd', label: 'Out Cost', render: (v: unknown) => formatUsd(v, 6) },
+    { key: 'costEstimateUsd', label: 'Total', render: (v: unknown) => formatUsd(v, 6) },
+    {
+      // `$/1M in` column — looked up from the LiteLLM model catalog
+      // (`input_cost_per_token` × 1M) per row's model. Catalog is already
+      // pre-converted to `$/1M` units by the discovery pipeline, so the
+      // value is rendered verbatim. We use the `model` column's value as
+      // the lookup key, not `inputCostUsd`, so the column key is `model`.
+      key: 'model',
+      label: '$/1M in',
+      render: (_v: unknown, row?: Record<string, unknown>) =>
+        formatCatalogRate(pricingByModel.get(String(row?.model ?? ''))?.input),
+    },
+    {
+      key: 'model',
+      label: '$/1M out',
+      render: (_v: unknown, row?: Record<string, unknown>) =>
+        formatCatalogRate(pricingByModel.get(String(row?.model ?? ''))?.output),
+    },
   ];
+
+  // Sort the audit data descending by timestamp so the most recent decision
+  // is always at the top — matches how chat / log surfaces typically render.
+  // The audit log is appended chronologically; reversing in-place isn't safe
+  // because the data array is also referenced by LogViewer.
+  const auditDescending = [...(audit as Record<string, unknown>[])].sort((a, b) => {
+    const ta = String(a.ts ?? '');
+    const tb = String(b.ts ?? '');
+    return tb.localeCompare(ta);
+  });
 
   // Per-source spend for today (chat vs icc), pulled from DailyCost.bySource
   // written by CostTracker.record(). The cost-attribution + per-source budget
@@ -372,15 +435,10 @@ export function ModelRoutingPage(_props: { path?: string }) {
             </div>
           )}
 
-          {/* Recent routing decisions */}
-          <div class="page-section">
-            <div class="page-section-title">Recent Routing Decisions</div>
-            <DataTable
-              columns={auditColumns}
-              data={audit as Record<string, unknown>[]}
-              emptyText="No routing decisions recorded yet"
-            />
-          </div>
+          {/* "Recent Routing Decisions" used to live here on Overview;
+              it now lives on the Logs tab, where the wider per-token /
+              per-cost columns have room to breathe and don't compete with
+              the at-a-glance stat cards. */}
         </>
       )}
 
@@ -474,11 +532,16 @@ export function ModelRoutingPage(_props: { path?: string }) {
       )}
 
       {!loading && tab === 'logs' && (
+        // Recent Routing Decisions takes the full Logs tab. The previous
+        // raw `<LogViewer>` block was redundant — every audit-log line was
+        // already surfaced in the table above with richer per-row columns,
+        // and the side-by-side layout split attention without adding info.
         <div class="page-section">
-          <LogViewer
-            source="routing"
-            initialRecords={audit as Record<string, unknown>[]}
-            title="Routing Audit Log"
+          <div class="page-section-title">Recent Routing Decisions</div>
+          <DataTable
+            columns={auditColumns}
+            data={auditDescending}
+            emptyText="No routing decisions recorded yet"
           />
         </div>
       )}
@@ -642,4 +705,36 @@ function SourceCostCard(props: {
       )}
     </div>
   );
+}
+
+// ── Audit-table cell formatters ────────────────────────────────────────────
+// Mirror the formatting `sai router stats` uses for its CLI tables so the
+// dashboard readout stays consistent with what users see in the terminal.
+
+/** Format a token count with K/M suffix for readability. Mirrors the
+ *  `formatTokenCount` helper in `cli/stats.ts`. Returns "-" for missing. */
+function formatTokenCount(v: unknown): string {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return '-';
+  if (v >= 1_000_000) return (v / 1_000_000).toFixed(1) + 'M';
+  if (v >= 1_000) return (v / 1_000).toFixed(1) + 'K';
+  return v.toString();
+}
+
+/** Format a USD amount with the requested decimal precision. Returns "-"
+ *  for missing/zero so the table doesn't fill with `$0.000000` rows on
+ *  cache-only or upstream-error decisions. */
+function formatUsd(v: unknown, decimals = 4): string {
+  if (typeof v !== 'number' || !Number.isFinite(v) || v === 0) return '-';
+  return '$' + v.toFixed(decimals);
+}
+
+/** Catalog `$/1M` rate — formatted directly from a `DiscoveredModel`'s
+ *  `inputPrice` / `outputPrice` field (LiteLLM `input_cost_per_token` /
+ *  `output_cost_per_token` already converted to per-million units by
+ *  `discovery.ts`). Returns "-" when the catalog has no entry for the
+ *  model — historical audit rows for now-removed models will hit that
+ *  branch, which is more honest than fabricating a rate. */
+function formatCatalogRate(ratePerMillion: number | undefined): string {
+  if (typeof ratePerMillion !== 'number' || !Number.isFinite(ratePerMillion)) return '-';
+  return '$' + ratePerMillion.toFixed(2);
 }

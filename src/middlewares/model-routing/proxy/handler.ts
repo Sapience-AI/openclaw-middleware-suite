@@ -45,6 +45,7 @@ import { MomentumTracker } from '../session/momentum.js';
 import { SessionStore } from '../session/session-store.js';
 import { RoutingProfile, isValidProfile } from '../selection/profiles.js';
 import { CostTracker } from '../storage/cost-tracker.js';
+import { RoutingAuditLog } from '../storage/RoutingAuditLog.js';
 import { PluginRegistry, AfterForwardEvent } from '../plugins/types.js';
 import { fetchModelCatalog, toDiscoveredModels, CatalogModel } from '../storage/model-catalog.js';
 import { normalizeDiscoveredModels } from '../providers/discovery.js';
@@ -98,7 +99,15 @@ function proxyLog(reqId: string, step: string, detail?: string | Record<string, 
 const GLOBAL_REQUEST_TIMEOUT_MS = 180_000;
 
 // ---------------------------------------------------------------------------
-// Stats (in-memory, reset on restart)
+// Stats — in-memory cumulative counters, hydrated from the audit log on
+// module load so the values survive gateway restarts.
+//
+// The audit log (MODEL_ROUTE_AUDIT_FILE) is the persisted source of truth:
+// every routed request appends one entry with its tier. On startup we walk
+// the file and seed `stats.total` / `stats.byTier` from those entries; on
+// each subsequent request the proxy increments the in-memory counters.
+// `startedAt` still tracks the current process start (it labels "uptime",
+// not "all-time start"), but the request counters are now persistent.
 // ---------------------------------------------------------------------------
 
 const stats: RoutingStats = {
@@ -106,6 +115,18 @@ const stats: RoutingStats = {
   byTier: { SIMPLE: 0, STANDARD: 0, COMPLEX: 0, REASONING: 0 },
   startedAt: new Date().toISOString(),
 };
+
+// Best-effort hydration. A missing or unreadable audit file leaves the
+// counters at zero, which is the same result as before the fix — no
+// regression risk for fresh installs or corrupted audit files.
+try {
+  const hydrated = new RoutingAuditLog().computeTierCounters();
+  stats.total = hydrated.total;
+  stats.byTier = hydrated.byTier;
+} catch {
+  // Swallow — `computeTierCounters` already logs internally; we don't
+  // want a startup failure here to take down the proxy module.
+}
 
 export function getStats(): RoutingStats {
   return { ...stats, byTier: { ...stats.byTier } };
@@ -1155,15 +1176,20 @@ async function processRequest(
       source: costSource,
     });
   }
-  const costEstimateUsd = costTracker
-    ? costTracker.estimateCost(
+  // Per-request cost split — input/output/total. The audit log carries
+  // this so the dashboard can render the Input / Output / Total / $/1M-in /
+  // $/1M-out columns directly from the audit entry without re-querying
+  // pricing or token data per render.
+  const costSplit = costTracker
+    ? costTracker.splitCost(
         usedModel,
         responseInputTokens || estimatedTokens,
         responseOutputTokens,
         responseCacheReadTokens,
         responseCacheWriteTokens
       )
-    : 0;
+    : { inputCostUsd: 0, outputCostUsd: 0, totalCostUsd: 0 };
+  const costEstimateUsd = costSplit.totalCostUsd;
 
   // Mark request as completed (prevents client disconnect handler from
   // redundantly cleaning up dedup entries).
@@ -1196,6 +1222,12 @@ async function processRequest(
     fallbackFrom,
     fallbackAttempts: attempts.length > 0 ? attempts : undefined,
     costEstimateUsd,
+    inputTokens: responseInputTokens || undefined,
+    outputTokens: responseOutputTokens || undefined,
+    cacheReadTokens: responseCacheReadTokens || undefined,
+    cacheWriteTokens: responseCacheWriteTokens || undefined,
+    inputCostUsd: costSplit.inputCostUsd || undefined,
+    outputCostUsd: costSplit.outputCostUsd || undefined,
   };
 
   if (onRouteCallback) {

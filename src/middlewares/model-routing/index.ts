@@ -626,6 +626,12 @@ export class ModelRoutingMiddleware implements Middleware {
       promptPreview: '', // kept minimal for privacy
       fallbackFrom: decision.fallbackFrom,
       costEstimateUsd: decision.costEstimateUsd,
+      inputTokens: decision.inputTokens,
+      outputTokens: decision.outputTokens,
+      cacheReadTokens: decision.cacheReadTokens,
+      cacheWriteTokens: decision.cacheWriteTokens,
+      inputCostUsd: decision.inputCostUsd,
+      outputCostUsd: decision.outputCostUsd,
     };
 
     this.auditLog.append(entry);

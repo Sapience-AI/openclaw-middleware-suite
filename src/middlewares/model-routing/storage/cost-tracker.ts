@@ -299,6 +299,30 @@ export class CostTracker {
   }
 
   /**
+   * Split a (model + tokens) tuple into input-side, output-side, and total
+   * cost in USD using the same pricing logic `record()` applies internally.
+   *
+   * Used by `proxy/handler.ts` to attach per-request cost breakdowns to the
+   * routing audit log so the dashboard can render Input / Output / Total /
+   * $/1M-in / $/1M-out columns without re-deriving rates.
+   */
+  splitCost(
+    model: string,
+    inputTokens: number,
+    outputTokens: number,
+    cacheReadTokens = 0,
+    cacheWriteTokens = 0
+  ): { inputCostUsd: number; outputCostUsd: number; totalCostUsd: number } {
+    return this.splitCostFromEvent({
+      model,
+      inputTokens,
+      outputTokens,
+      cacheReadTokens,
+      cacheWriteTokens,
+    });
+  }
+
+  /**
    * Get the baseline cost (what it would cost if all requests used the COMPLEX tier model).
    */
   estimateBaselineCost(inputTokens: number, outputTokens: number): number {

@@ -126,8 +126,19 @@ export interface RoutingDecision {
   latencyMs: number;
   fallbackFrom?: string;
   fallbackAttempts?: FallbackAttempt[];
-  /** Estimated cost in USD (calculated from LiteLLM catalog pricing + token counts). */
+  /** Total cost in USD for this request (input + output + cache costs combined). */
   costEstimateUsd?: number;
+  /**
+   * Per-request token usage and cost split, captured at response completion
+   * from upstream usage data. All optional because non-streaming responses
+   * with missing usage blocks (or upstream errors) leave these undefined.
+   */
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  inputCostUsd?: number;
+  outputCostUsd?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -235,4 +246,11 @@ export interface RoutingAuditEntry {
   sessionId?: string;
   costEstimateUsd?: number;
   cached?: boolean;
+  /** Per-request token usage + cost split. Populated from upstream usage. */
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  inputCostUsd?: number;
+  outputCostUsd?: number;
 }
