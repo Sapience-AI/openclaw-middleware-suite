@@ -58,6 +58,19 @@ const PROXY_AUDIT_FILE = MODEL_ROUTE_PROXY_LOG;
 
 let proxyAuditEnsured = false;
 
+/**
+ * Strip newlines and control characters from a logged field, and cap length.
+ * Prevents log injection (CodeQL js/http-to-file-access) where attacker-
+ * controlled HTTP input could forge log lines or bloat the audit file.
+ */
+function sanitizeLogField(s: string, maxLen = 2048): string {
+  // Replace CR/LF and other ASCII control chars (0x00-0x1F, 0x7F) with a
+  // single space so a malicious header cannot fabricate a fake log line.
+  // eslint-disable-next-line no-control-regex
+  const cleaned = s.replace(/[\x00-\x1f\x7f]/g, ' ');
+  return cleaned.length > maxLen ? cleaned.slice(0, maxLen) + '…' : cleaned;
+}
+
 function proxyLog(reqId: string, step: string, detail?: string | Record<string, unknown>): void {
   try {
     if (!proxyAuditEnsured) {
@@ -65,13 +78,15 @@ function proxyLog(reqId: string, step: string, detail?: string | Record<string, 
       proxyAuditEnsured = true;
     }
     const ts = new Date().toISOString();
+    const safeReqId = sanitizeLogField(reqId, 128);
+    const safeStep = sanitizeLogField(step, 256);
     const detailStr =
       detail === undefined
         ? ''
         : typeof detail === 'string'
-          ? ` | ${detail}`
-          : ` | ${JSON.stringify(detail)}`;
-    fs.appendFileSync(PROXY_AUDIT_FILE, `[${ts}] [${reqId}] ${step}${detailStr}\n`);
+          ? ` | ${sanitizeLogField(detail)}`
+          : ` | ${sanitizeLogField(JSON.stringify(detail))}`;
+    fs.appendFileSync(PROXY_AUDIT_FILE, `[${ts}] [${safeReqId}] ${safeStep}${detailStr}\n`);
   } catch {
     /* never crash the proxy for logging */
   }
