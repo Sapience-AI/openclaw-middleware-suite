@@ -239,6 +239,40 @@
   font-size: 13px;
 }
 
+/* Compact modifier — used on dense tables (Recent Routing Decisions) where
+ * we'd rather fit ~11 columns on screen than have huge per-cell padding.
+ * Tightens padding, font size, and forces nowrap so columns auto-size to
+ * their content rather than wrapping into multi-line cells. */
+.data-table--compact {
+  table-layout: auto;
+}
+.data-table--compact th,
+.data-table--compact td {
+  padding: 6px 10px;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.data-table--compact th {
+  letter-spacing: 0.3px;
+  font-size: 11px;
+}
+.data-table--compact .mono {
+  font-size: 12px;
+}
+/* Pair-cells render two values stacked compactly with a thin separator.
+ * Used to fit Score+Conf, Input+Output, Cache R+Cache W, In Cost+Out Cost,
+ * $/1M in+$/1M out as single columns without losing either value. */
+.data-table--compact .cell-pair {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  font-variant-numeric: tabular-nums;
+}
+.data-table--compact .cell-pair-sep {
+  color: var(--sai-text-muted);
+  opacity: 0.5;
+}
+
 /* ── Modal ────────────────────────────────────────────────────────────────── */
 
 .modal-overlay {

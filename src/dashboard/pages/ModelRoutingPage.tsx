@@ -183,16 +183,14 @@ export function ModelRoutingPage(_props: { path?: string }) {
   // Build cost chart data
   const chartData = buildCostChartData(costData);
 
-  // Audit columns map to RoutingAuditEntry fields as written by RoutingAuditLog
-  // (types.ts: ts, tier, model, score, confidence, reason, latencyMs, plus
-  // per-request token + cost split: inputTokens, outputTokens,
-  // cacheReadTokens, cacheWriteTokens, inputCostUsd, outputCostUsd).
-  //
-  // Layout mirrors the CLI's "Last N Routing Decisions" + "Cost by Model"
-  // tables that `sai router stats` prints, so users can correlate decisions
-  // across both surfaces. `$/1M in` and `$/1M out` are derived effective
-  // rates per row (cost ÷ tokens × 1M); they reflect what was actually
-  // charged, accounting for any cache-hit discounts.
+  // Audit columns map to RoutingAuditEntry fields written by RoutingAuditLog.
+  // To fit on screen without horizontal scroll we collapse 16 logical fields
+  // into 11 displayed columns by pairing closely-related values (Score+Conf,
+  // Input+Output tokens, Cache R+W, In Cost+Out Cost, $/1M in+out) into
+  // single cells separated by a faint divider. The compact-table CSS
+  // modifier (`data-table--compact`, see components.css) tightens padding
+  // and font size further. `$/1M` rates come from the LiteLLM model catalog
+  // via `pricingByModel`, not from per-row cost÷tokens math.
   const auditColumns = [
     {
       key: 'ts',
@@ -203,13 +201,9 @@ export function ModelRoutingPage(_props: { path?: string }) {
     { key: 'model', label: 'Model', mono: true },
     {
       key: 'score',
-      label: 'Score',
-      render: (v: unknown) => (typeof v === 'number' ? v.toFixed(2) : '-'),
-    },
-    {
-      key: 'confidence',
-      label: 'Conf',
-      render: (v: unknown) => (typeof v === 'number' ? v.toFixed(2) : '-'),
+      label: 'Score / Conf',
+      render: (_v: unknown, row?: Record<string, unknown>) =>
+        renderPair(formatNum(row?.score, 2), formatNum(row?.confidence, 2)),
     },
     { key: 'reason', label: 'Reason', render: (v: unknown) => (typeof v === 'string' ? v : '-') },
     {
@@ -217,29 +211,35 @@ export function ModelRoutingPage(_props: { path?: string }) {
       label: 'Latency',
       render: (v: unknown) => (typeof v === 'number' ? `${v}ms` : '-'),
     },
-    { key: 'inputTokens', label: 'Input', render: (v: unknown) => formatTokenCount(v) },
-    { key: 'outputTokens', label: 'Output', render: (v: unknown) => formatTokenCount(v) },
-    { key: 'cacheReadTokens', label: 'Cache R', render: (v: unknown) => formatTokenCount(v) },
-    { key: 'cacheWriteTokens', label: 'Cache W', render: (v: unknown) => formatTokenCount(v) },
-    { key: 'inputCostUsd', label: 'In Cost', render: (v: unknown) => formatUsd(v, 6) },
-    { key: 'outputCostUsd', label: 'Out Cost', render: (v: unknown) => formatUsd(v, 6) },
-    { key: 'costEstimateUsd', label: 'Total', render: (v: unknown) => formatUsd(v, 6) },
     {
-      // `$/1M in` column — looked up from the LiteLLM model catalog
-      // (`input_cost_per_token` × 1M) per row's model. Catalog is already
-      // pre-converted to `$/1M` units by the discovery pipeline, so the
-      // value is rendered verbatim. We use the `model` column's value as
-      // the lookup key, not `inputCostUsd`, so the column key is `model`.
-      key: 'model',
-      label: '$/1M in',
+      key: 'inputTokens',
+      label: 'In / Out',
       render: (_v: unknown, row?: Record<string, unknown>) =>
-        formatCatalogRate(pricingByModel.get(String(row?.model ?? ''))?.input),
+        renderPair(formatTokenCount(row?.inputTokens), formatTokenCount(row?.outputTokens)),
     },
     {
-      key: 'model',
-      label: '$/1M out',
+      key: 'cacheReadTokens',
+      label: 'Cache R / W',
       render: (_v: unknown, row?: Record<string, unknown>) =>
-        formatCatalogRate(pricingByModel.get(String(row?.model ?? ''))?.output),
+        renderPair(
+          formatTokenCount(row?.cacheReadTokens),
+          formatTokenCount(row?.cacheWriteTokens),
+        ),
+    },
+    {
+      key: 'inputCostUsd',
+      label: 'In / Out Cost',
+      render: (_v: unknown, row?: Record<string, unknown>) =>
+        renderPair(formatUsd(row?.inputCostUsd, 4), formatUsd(row?.outputCostUsd, 4)),
+    },
+    { key: 'costEstimateUsd', label: 'Total', render: (v: unknown) => formatUsd(v, 4) },
+    {
+      key: 'model',
+      label: '$/1M in / out',
+      render: (_v: unknown, row?: Record<string, unknown>) => {
+        const p = pricingByModel.get(String(row?.model ?? ''));
+        return renderPair(formatCatalogRate(p?.input), formatCatalogRate(p?.output));
+      },
     },
   ];
 
@@ -542,6 +542,7 @@ export function ModelRoutingPage(_props: { path?: string }) {
             columns={auditColumns}
             data={auditDescending}
             emptyText="No routing decisions recorded yet"
+            compact
           />
         </div>
       )}
@@ -737,4 +738,25 @@ function formatUsd(v: unknown, decimals = 4): string {
 function formatCatalogRate(ratePerMillion: number | undefined): string {
   if (typeof ratePerMillion !== 'number' || !Number.isFinite(ratePerMillion)) return '-';
   return '$' + ratePerMillion.toFixed(2);
+}
+
+/** Format an arbitrary number to N decimals, returning "-" for missing /
+ *  non-finite. Used by the score+conf cell pair. */
+function formatNum(v: unknown, decimals = 2): string {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return '-';
+  return v.toFixed(decimals);
+}
+
+/** Render two related values as a single compact "a / b" cell. The faint
+ *  separator + tabular-nums (set in components.css `.cell-pair`) keeps
+ *  the values aligned across rows so the table reads cleanly even with
+ *  many rows of mixed-width numbers. */
+function renderPair(a: string, b: string): preact.ComponentChildren {
+  return (
+    <span class="cell-pair">
+      <span>{a}</span>
+      <span class="cell-pair-sep">/</span>
+      <span>{b}</span>
+    </span>
+  );
 }

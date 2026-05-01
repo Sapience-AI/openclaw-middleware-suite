@@ -21,9 +21,22 @@ interface DataTableProps {
   data: Record<string, unknown>[];
   pageSize?: number;
   emptyText?: string;
+  /**
+   * When true, applies the `.data-table--compact` modifier — tighter
+   * padding, smaller font, `white-space: nowrap`. Used by dense tables
+   * (e.g. Recent Routing Decisions) that need to fit many columns on
+   * screen without overflowing.
+   */
+  compact?: boolean;
 }
 
-export function DataTable({ columns, data, pageSize = 20, emptyText = 'No data' }: DataTableProps) {
+export function DataTable({
+  columns,
+  data,
+  pageSize = 20,
+  emptyText = 'No data',
+  compact,
+}: DataTableProps) {
   const [page, setPage] = useState(0);
   const totalPages = Math.max(1, Math.ceil(data.length / pageSize));
   const start = page * pageSize;
@@ -41,7 +54,7 @@ export function DataTable({ columns, data, pageSize = 20, emptyText = 'No data' 
 
   return (
     <div class="data-table-wrap">
-      <table class="data-table">
+      <table class={`data-table${compact ? ' data-table--compact' : ''}`}>
         <thead>
           <tr>
             {columns.map((col) => (
