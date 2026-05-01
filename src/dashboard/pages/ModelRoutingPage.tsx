@@ -28,6 +28,25 @@ const TIERS = ['SIMPLE', 'STANDARD', 'COMPLEX', 'REASONING'] as const;
 const PROFILES = ['eco', 'premium', 'agentic'] as const;
 type Profile = (typeof PROFILES)[number];
 
+// Mirrors DEFAULT_SCORING_CONFIG.{boundaries,overrides} in
+// src/middlewares/model-routing/config.ts — kept duplicated here so the
+// Advanced Scoring fields can show the same defaults the runtime uses
+// without pulling the full backend config (and its keyword lists) into
+// the dashboard bundle. If the backend defaults change, update both
+// places — the runtime is still authoritative; this only affects the
+// "starting value" the form fields display before the user touches them.
+const DEFAULT_BOUNDARIES = {
+  simpleStandard: -0.1,
+  standardComplex: 0.08,
+  complexReasoning: 0.35,
+} as const;
+const DEFAULT_OVERRIDES = {
+  shortMessageChars: 50,
+  largeContextTokens: 50_000,
+  reasoningKeywordMin: 2,
+  structuredOutputMinTier: 'STANDARD' as const,
+} as const;
+
 export function ModelRoutingPage(_props: { path?: string }) {
   const [stats, setStats] = useState<Record<string, unknown>>({});
   const [config, setConfig] = useState<Record<string, unknown>>({});
@@ -46,11 +65,6 @@ export function ModelRoutingPage(_props: { path?: string }) {
   // first measurement runs (covers ~720px content area).
   const auditTableWrapRef = useRef<HTMLDivElement>(null);
   const [auditPageSize, setAuditPageSize] = useState(15);
-  // Overview-tab chart height — measured against the viewport so the page
-  // never scrolls vertically. Default 220 is the previous fixed value, used
-  // as a fallback before the first measurement runs.
-  const overviewChartWrapRef = useRef<HTMLDivElement>(null);
-  const [chartHeight, setChartHeight] = useState(220);
   // Which profile the config form is currently editing. Independent of any
   // global "default profile" — each profile has its own persisted tier slot
   // in `config.tierOverridesByProfile`, and switching this dropdown swaps
@@ -115,43 +129,6 @@ export function ModelRoutingPage(_props: { path?: string }) {
     };
   }, [tab]);
 
-  // Overview chart fills the remaining vertical space below rows 1+2 so the
-  // page never scrolls. Sized analogously to the audit-table effect above:
-  // measure the chart wrapper's top edge against the viewport and assign
-  // remaining height (minus chart-wrap padding + title + bottom buffer).
-  // Recomputes when stats / cost data lands (rows above can grow) and on
-  // window resize.
-  //
-  // CHART_CHROME shrinks at the same breakpoints the short-viewport CSS
-  // compression in pages.css uses (`@media (max-height: 900/760px)`), so
-  // the JS-computed `available` matches the actual chart-wrap padding +
-  // title height the browser is rendering. Floor is intentionally low
-  // (110px) — short viewports still show a legible chart, and combined
-  // with the CSS compression above the rows shrink enough that floor is
-  // rarely hit on real screen sizes.
-  useEffect(() => {
-    if (tab !== 'overview' || loading) return;
-    const recompute = () => {
-      const el = overviewChartWrapRef.current;
-      if (!el) return;
-      const vh = window.innerHeight;
-      // Chart-wrap padding + title row + bottom margin shrinks via CSS at
-      // 900/760 height breakpoints — mirror that here so we don't over-
-      // subtract on short viewports and accidentally force the page to
-      // scroll a single pixel because of rounding.
-      const chartChrome = vh <= 760 ? 56 : vh <= 900 ? 68 : 80;
-      const top = el.getBoundingClientRect().top;
-      const available = vh - top - chartChrome;
-      const next = Math.max(110, available);
-      setChartHeight((prev) => (Math.abs(prev - next) < 4 ? prev : next));
-    };
-    const raf = requestAnimationFrame(recompute);
-    window.addEventListener('resize', recompute);
-    return () => {
-      cancelAnimationFrame(raf);
-      window.removeEventListener('resize', recompute);
-    };
-  }, [tab, loading, stats, costData, providers]);
 
   // Tier configuration for the *currently edited* profile. Each profile has
   // its own slot in `tierOverridesByProfile`; missing slots fall back to
@@ -234,6 +211,84 @@ export function ModelRoutingPage(_props: { path?: string }) {
         { value: 'enabled', label: 'Enabled (default)' },
       ],
     },
+
+    // \u2500\u2500 Advanced Scoring: Tier Boundaries \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+    // The 3 cutoffs that map a final dimension score to a tier. Most users
+    // shouldn't need to touch these; placed at the bottom of the form so
+    // the common-case fields (tiers, fallback, pinning, caching) stay above
+    // the fold. Step 0.01 mirrors the granularity `sai router config
+    // --set-boundary` accepts (parseFloat).
+    {
+      key: '_boundary_simpleStandard',
+      label: 'Boundary: simple \u2192 standard',
+      description: `Score below this lands in SIMPLE. Default: ${DEFAULT_BOUNDARIES.simpleStandard}.`,
+      type: 'number',
+      step: 0.01,
+      min: -1,
+      max: 1,
+    },
+    {
+      key: '_boundary_standardComplex',
+      label: 'Boundary: standard \u2192 complex',
+      description: `Score above this lands in COMPLEX or higher. Default: ${DEFAULT_BOUNDARIES.standardComplex}.`,
+      type: 'number',
+      step: 0.01,
+      min: -1,
+      max: 1,
+    },
+    {
+      key: '_boundary_complexReasoning',
+      label: 'Boundary: complex \u2192 reasoning',
+      description: `Score above this lands in REASONING. Default: ${DEFAULT_BOUNDARIES.complexReasoning}.`,
+      type: 'number',
+      step: 0.01,
+      min: -1,
+      max: 1,
+    },
+
+    // \u2500\u2500 Advanced Scoring: Override Thresholds \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+    // The 4 fast-path classification rules that bypass dimension scoring.
+    // Same caveat \u2014 most users won't touch these; defaults work for normal
+    // OpenClaw chat. Step values are tuned to typical edit increments
+    // (10 chars, 5k tokens, 1 keyword).
+    {
+      key: '_override_shortMessageChars',
+      label: 'Short-message threshold',
+      description: `Messages shorter than this skip scoring and route to SIMPLE. Default: ${DEFAULT_OVERRIDES.shortMessageChars}.`,
+      type: 'number',
+      step: 10,
+      min: 0,
+      unit: 'chars',
+    },
+    {
+      key: '_override_largeContextTokens',
+      label: 'Large-context threshold',
+      description: `Requests larger than this floor to COMPLEX. Default: ${DEFAULT_OVERRIDES.largeContextTokens}.`,
+      type: 'number',
+      step: 5_000,
+      min: 1_000,
+      unit: 'tokens',
+    },
+    {
+      key: '_override_reasoningKeywordMin',
+      label: 'Reasoning-keyword count',
+      description: `Hits in the formal-logic dimension at or above this force REASONING. Default: ${DEFAULT_OVERRIDES.reasoningKeywordMin}.`,
+      type: 'number',
+      step: 1,
+      min: 1,
+    },
+    {
+      key: '_override_structuredOutputMinTier',
+      label: 'Structured-output floor tier',
+      description: `Floor tier when the request sets response_format. Default: ${DEFAULT_OVERRIDES.structuredOutputMinTier}.`,
+      type: 'dropdown',
+      options: [
+        { value: 'SIMPLE', label: 'SIMPLE' },
+        { value: 'STANDARD', label: 'STANDARD (default)' },
+        { value: 'COMPLEX', label: 'COMPLEX' },
+        { value: 'REASONING', label: 'REASONING' },
+      ],
+    },
   ];
 
   // Marshal config → flat form values.
@@ -258,6 +313,30 @@ export function ModelRoutingPage(_props: { path?: string }) {
       formValues._fallback = fb[0];
     }
   }
+
+  // Seed the Advanced Scoring fields from persisted overrides; fall through
+  // to defaults when the user hasn't touched them (the persisted shape
+  // intentionally only carries the keys the user has changed). Reads
+  // `boundaryOverrides` and `overrideThresholds` straight off the config
+  // payload returned by /api/routing/config.
+  const persistedBounds =
+    (config.boundaryOverrides as Partial<typeof DEFAULT_BOUNDARIES>) || {};
+  const persistedOverrides =
+    (config.overrideThresholds as Partial<typeof DEFAULT_OVERRIDES>) || {};
+  formValues._boundary_simpleStandard =
+    persistedBounds.simpleStandard ?? DEFAULT_BOUNDARIES.simpleStandard;
+  formValues._boundary_standardComplex =
+    persistedBounds.standardComplex ?? DEFAULT_BOUNDARIES.standardComplex;
+  formValues._boundary_complexReasoning =
+    persistedBounds.complexReasoning ?? DEFAULT_BOUNDARIES.complexReasoning;
+  formValues._override_shortMessageChars =
+    persistedOverrides.shortMessageChars ?? DEFAULT_OVERRIDES.shortMessageChars;
+  formValues._override_largeContextTokens =
+    persistedOverrides.largeContextTokens ?? DEFAULT_OVERRIDES.largeContextTokens;
+  formValues._override_reasoningKeywordMin =
+    persistedOverrides.reasoningKeywordMin ?? DEFAULT_OVERRIDES.reasoningKeywordMin;
+  formValues._override_structuredOutputMinTier =
+    persistedOverrides.structuredOutputMinTier ?? DEFAULT_OVERRIDES.structuredOutputMinTier;
 
   // Build cost chart data
   const chartData = buildCostChartData(costData);
@@ -533,16 +612,13 @@ export function ModelRoutingPage(_props: { path?: string }) {
               only one day's data the single bar looked frozen as more
               requests aggregated into the same daily bucket, and uPlot's
               default point markers landed on top of the bars. */}
-          {/* Daily routing cost — line chart, one point per day. The
-              old "Routing Cost (24h)" title implied last-24h scrubbing;
-              actually each dot is the day's accumulated `totalUsd` from
-              CostTracker.saveToDisk's persisted DailyCost[], so the
-              x-axis spans days, not hours. Bar mode was tried but
-              produced visual artifacts with sparse data. The chart's
-              height is computed by the `tab === 'overview'` effect above
-              so it fills the remaining viewport without forcing a scroll. */}
-          <div class="page-section" ref={overviewChartWrapRef} style={{ marginBottom: 0 }}>
-            <Chart title="Daily Routing Cost ($/day)" data={chartData} height={chartHeight} />
+          {/* Daily routing cost — line chart, one point per day. Each dot
+              is the day's accumulated `totalUsd` from CostTracker.
+              saveToDisk's persisted DailyCost[], so the x-axis spans
+              days, not hours. Bar mode was tried but produced visual
+              artifacts with sparse data. */}
+          <div class="page-section">
+            <Chart title="Daily Routing Cost ($/day)" data={chartData} height={220} />
           </div>
 
           {/* "Recent Routing Decisions" used to live here on Overview;
@@ -628,14 +704,51 @@ export function ModelRoutingPage(_props: { path?: string }) {
               const pinning = val.sessionPinningEnabled === 'enabled';
               const cache = val.providerCacheEnabled === 'enabled';
 
+              // Marshal Advanced Scoring fields. Only persist values that
+              // differ from the runtime defaults \u2014 keeps the store sparse
+              // and lets future default tweaks reach un-customized installs.
+              const boundaryOverrides: Record<string, number> = {};
+              for (const key of [
+                'simpleStandard',
+                'standardComplex',
+                'complexReasoning',
+              ] as const) {
+                const v = Number(val[`_boundary_${key}`]);
+                if (Number.isFinite(v) && v !== DEFAULT_BOUNDARIES[key]) {
+                  boundaryOverrides[key] = v;
+                }
+              }
+              const overrideThresholds: Record<string, number | string> = {};
+              for (const key of [
+                'shortMessageChars',
+                'largeContextTokens',
+                'reasoningKeywordMin',
+              ] as const) {
+                const v = Number(val[`_override_${key}`]);
+                if (Number.isFinite(v) && v !== DEFAULT_OVERRIDES[key]) {
+                  overrideThresholds[key] = v;
+                }
+              }
+              const tierMin = String(val._override_structuredOutputMinTier);
+              if (
+                tierMin &&
+                tierMin !== DEFAULT_OVERRIDES.structuredOutputMinTier
+              ) {
+                overrideThresholds.structuredOutputMinTier = tierMin;
+              }
+
               // Send profile-scoped tier write. The server nests these under
               // `tierOverridesByProfile[profile]`, leaving the other profiles'
-              // saved configs untouched.
+              // saved configs untouched. Boundaries / override-thresholds are
+              // global (not per-profile) \u2014 backend writes them straight to
+              // the top-level fields on `model_routing`.
               await updateRoutingTiers({
                 profile: editingProfile,
                 tierOverrides: newTierOverrides,
                 sessionPinningEnabled: pinning,
                 providerCacheEnabled: cache,
+                boundaryOverrides,
+                overrideThresholds,
               });
 
               // Refresh client-side config so the next render sees the saved values.

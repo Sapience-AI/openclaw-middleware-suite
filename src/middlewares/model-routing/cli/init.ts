@@ -45,10 +45,21 @@
 import inquirer from 'inquirer';
 import chalk from 'chalk';
 import { ModelRoutingDiscovery } from '../storage/ModelRoutingDiscovery.js';
-import { ModelRoutingPolicyStore } from '../storage/ModelRoutingPolicyStore.js';
+import {
+  ModelRoutingPolicyStore,
+  type ModelRoutingPolicyData,
+} from '../storage/ModelRoutingPolicyStore.js';
 import { VALID_PROFILES, PROFILE_DESCRIPTIONS, RoutingProfile } from '../selection/profiles.js';
 import { buildProfileFromDiscovered } from '../selection/profiles.js';
-import { Tier, TierModelConfig, DiscoveredModel, ProviderConfig } from '../types.js';
+import {
+  Tier,
+  TierBoundaries,
+  TierModelConfig,
+  OverrideConfig,
+  DiscoveredModel,
+  ProviderConfig,
+} from '../types.js';
+import { DEFAULT_SCORING_CONFIG } from '../config.js';
 import { SAPIENCE_MW_STORE_FILE } from '../../../shared/Logger.js';
 import { resolveProviderConfig } from './provider-auth.js';
 import { discoverAllModels, normalizeDiscoveredModels } from '../providers/discovery.js';
@@ -503,6 +514,162 @@ export async function initModelRoutingMiddleware(
     }
   }
 
+  // ── Step 3: Optional — customize scoring boundaries ─────────────────────
+  // The 3 thresholds that decide which tier a final dimension score lands
+  // in. Most users should not touch these; gated behind an explicit
+  // confirm so the wizard stays tight for the common case. Existing
+  // overrides (from a previous `sai init` or `sai router config
+  // --set-boundary`) are shown as the starting point so re-running
+  // doesn't surprise users.
+  let boundaryOverridesNew: ModelRoutingPolicyData['boundaryOverrides'] | undefined;
+  if (!nonInteractive && !jsonMode) {
+    console.log(chalk.bold('Step 3: Tier Scoring Boundaries (advanced)'));
+    console.log(
+      chalk.dim(
+        'Numeric cutoffs that map the final dimension score to a tier. Defaults work for most users.'
+      )
+    );
+    console.log('');
+
+    const { wantsBoundaries } = await inquirer.prompt([
+      {
+        type: 'confirm',
+        name: 'wantsBoundaries',
+        message: 'Customize tier scoring boundaries?',
+        default: false,
+      },
+    ]);
+
+    if (wantsBoundaries) {
+      const effective: TierBoundaries = {
+        ...DEFAULT_SCORING_CONFIG.boundaries,
+        ...existingData.boundaryOverrides,
+      };
+      const ans = await inquirer.prompt([
+        {
+          type: 'input',
+          name: 'simpleStandard',
+          message: 'simple → standard boundary (score below this = SIMPLE):',
+          default: String(effective.simpleStandard),
+          validate: (v: string) => !isNaN(parseFloat(v)) || 'Must be a number (e.g., -0.1)',
+        },
+        {
+          type: 'input',
+          name: 'standardComplex',
+          message: 'standard → complex boundary (score above this = COMPLEX or higher):',
+          default: String(effective.standardComplex),
+          validate: (v: string) => !isNaN(parseFloat(v)) || 'Must be a number (e.g., 0.08)',
+        },
+        {
+          type: 'input',
+          name: 'complexReasoning',
+          message: 'complex → reasoning boundary (score above this = REASONING):',
+          default: String(effective.complexReasoning),
+          validate: (v: string) => !isNaN(parseFloat(v)) || 'Must be a number (e.g., 0.35)',
+        },
+      ]);
+      // Only persist values the user actually changed — keeps the store
+      // sparse and readable, and lets future default tweaks reach
+      // un-customized installs.
+      const next: NonNullable<ModelRoutingPolicyData['boundaryOverrides']> = {
+        ...(existingData.boundaryOverrides ?? {}),
+      };
+      for (const key of ['simpleStandard', 'standardComplex', 'complexReasoning'] as const) {
+        const parsed = parseFloat(ans[key]);
+        if (parsed !== DEFAULT_SCORING_CONFIG.boundaries[key]) next[key] = parsed;
+        else delete next[key];
+      }
+      boundaryOverridesNew = Object.keys(next).length > 0 ? next : undefined;
+      console.log(chalk.green('   Boundaries saved.'));
+      console.log('');
+    }
+  }
+
+  // ── Step 4: Optional — customize override thresholds ────────────────────
+  // The 4 fast-path classification rules that bypass dimension scoring:
+  // shortMessageChars, largeContextTokens, reasoningKeywordMin, and
+  // structuredOutputMinTier (the only non-numeric one — a tier name).
+  let overrideThresholdsNew: ModelRoutingPolicyData['overrideThresholds'] | undefined;
+  if (!nonInteractive && !jsonMode) {
+    console.log(chalk.bold('Step 4: Override Thresholds (advanced)'));
+    console.log(
+      chalk.dim(
+        'Fast-path classification rules that bypass dimension scoring (e.g., short messages → SIMPLE).'
+      )
+    );
+    console.log('');
+
+    const { wantsOverrides } = await inquirer.prompt([
+      {
+        type: 'confirm',
+        name: 'wantsOverrides',
+        message: 'Customize override thresholds?',
+        default: false,
+      },
+    ]);
+
+    if (wantsOverrides) {
+      const effective: OverrideConfig = {
+        ...DEFAULT_SCORING_CONFIG.overrides,
+        ...existingData.overrideThresholds,
+      };
+      const ans = await inquirer.prompt([
+        {
+          type: 'input',
+          name: 'shortMessageChars',
+          message: 'Short-message threshold (chars below = SIMPLE bypass):',
+          default: String(effective.shortMessageChars),
+          validate: (v: string) =>
+            (!isNaN(parseInt(v, 10)) && parseInt(v, 10) >= 0) || 'Must be a non-negative integer',
+        },
+        {
+          type: 'input',
+          name: 'largeContextTokens',
+          message: 'Large-context threshold (tokens above → COMPLEX floor):',
+          default: String(effective.largeContextTokens),
+          validate: (v: string) =>
+            (!isNaN(parseInt(v, 10)) && parseInt(v, 10) > 0) || 'Must be a positive integer',
+        },
+        {
+          type: 'input',
+          name: 'reasoningKeywordMin',
+          message: 'Reasoning-keyword count to force REASONING:',
+          default: String(effective.reasoningKeywordMin),
+          validate: (v: string) =>
+            (!isNaN(parseInt(v, 10)) && parseInt(v, 10) >= 1) || 'Must be a positive integer',
+        },
+        {
+          type: 'list',
+          name: 'structuredOutputMinTier',
+          message: 'Floor tier when response_format is set:',
+          choices: ['SIMPLE', 'STANDARD', 'COMPLEX', 'REASONING'],
+          default: effective.structuredOutputMinTier,
+        },
+      ]);
+      const next: Partial<OverrideConfig> = {
+        ...(existingData.overrideThresholds ?? {}),
+      };
+      const parsedSmc = parseInt(ans.shortMessageChars, 10);
+      if (parsedSmc !== DEFAULT_SCORING_CONFIG.overrides.shortMessageChars)
+        next.shortMessageChars = parsedSmc;
+      else delete next.shortMessageChars;
+      const parsedLct = parseInt(ans.largeContextTokens, 10);
+      if (parsedLct !== DEFAULT_SCORING_CONFIG.overrides.largeContextTokens)
+        next.largeContextTokens = parsedLct;
+      else delete next.largeContextTokens;
+      const parsedRkm = parseInt(ans.reasoningKeywordMin, 10);
+      if (parsedRkm !== DEFAULT_SCORING_CONFIG.overrides.reasoningKeywordMin)
+        next.reasoningKeywordMin = parsedRkm;
+      else delete next.reasoningKeywordMin;
+      if (ans.structuredOutputMinTier !== DEFAULT_SCORING_CONFIG.overrides.structuredOutputMinTier)
+        next.structuredOutputMinTier = ans.structuredOutputMinTier as Tier;
+      else delete next.structuredOutputMinTier;
+      overrideThresholdsNew = Object.keys(next).length > 0 ? next : undefined;
+      console.log(chalk.green('   Override thresholds saved.'));
+      console.log('');
+    }
+  }
+
   // ── Resolve and save provider configs from every tier of every profile ──
   // Collect all unique model IDs across tiers across profiles (primary + fallbacks)
   const allModelIds = new Set<string>();
@@ -576,13 +743,20 @@ export async function initModelRoutingMiddleware(
     warnings.push(warning);
   }
 
-  // Commit per-profile tier overrides + providerConfigs in one merge-save.
-  // Sibling fields (weightOverrides, boundaryOverrides, exclusions, pinning
-  // toggles, defaultProfile) are preserved via update()'s shallow merge.
-  await ModelRoutingPolicyStore.update({
+  // Commit per-profile tier overrides + providerConfigs + any optional
+  // boundary / override-threshold customizations the user accepted in the
+  // wizard, all in one merge-save. Sibling fields (weightOverrides,
+  // exclusions, pinning toggles, defaultProfile) are preserved via
+  // update()'s shallow merge. `boundaryOverrides` / `overrideThresholds`
+  // are only included when the user opted into customization — otherwise
+  // we leave whatever was already in the store untouched.
+  const updatePayload: Partial<ModelRoutingPolicyData> = {
     tierOverridesByProfile,
     providerConfigs: mergedProviderConfigs,
-  });
+  };
+  if (boundaryOverridesNew !== undefined) updatePayload.boundaryOverrides = boundaryOverridesNew;
+  if (overrideThresholdsNew !== undefined) updatePayload.overrideThresholds = overrideThresholdsNew;
+  await ModelRoutingPolicyStore.update(updatePayload);
 
   if (!jsonMode) {
     console.log(chalk.green('  Configuration saved to unified store.'));

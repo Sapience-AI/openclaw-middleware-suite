@@ -39,6 +39,24 @@ export interface ModelRoutingPolicyData {
     standardComplex?: number;
     complexReasoning?: number;
   };
+  /** User overrides for the early-classification override thresholds in
+   *  `ScoringConfig.overrides`. Only the fields the user touched are stored;
+   *  missing fields fall through to `DEFAULT_SCORING_CONFIG.overrides`.
+   *  Named `overrideThresholds` rather than `overrideOverrides` to avoid
+   *  the awkward repetition while keeping the relationship to the
+   *  underlying config-field clear. Inline shape (mirrors the
+   *  `boundaryOverrides` pattern) keeps the field self-documenting on the
+   *  public API surface without having to export `OverrideConfig`. */
+  overrideThresholds?: {
+    /** Messages shorter than this skip scoring and route to SIMPLE. */
+    shortMessageChars?: number;
+    /** Requests larger than this floor to COMPLEX. */
+    largeContextTokens?: number;
+    /** Hits in the formal-logic dimension at or above this force REASONING. */
+    reasoningKeywordMin?: number;
+    /** Floor tier when the request sets `response_format`. */
+    structuredOutputMinTier?: Tier;
+  };
   /** Per-profile tier-to-model mappings.
    *  Keyed by RoutingProfile; each value is a partial Tier→TierModelConfig map.
    *  Profiles absent from this object inherit the runtime default (built via

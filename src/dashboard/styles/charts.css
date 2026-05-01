@@ -52,23 +52,3 @@
   color: var(--sai-text-muted);
   font-size: 14px;
 }
-
-/* Short-viewport compression — matches the breakpoints in pages.css so
- * the chart-wrap shrinks along with the stat / tier cards on laptop-class
- * screens. The JS in ModelRoutingPage.tsx (`tab === 'overview'` effect)
- * mirrors these values when computing the chart's pixel height so the
- * dynamic-fit math doesn't over-subtract padding the browser isn't
- * rendering. */
-@media (max-height: 900px) {
-  .chart-wrap { padding: 14px; }
-  .chart-title { font-size: 13px; margin-bottom: 8px; }
-  .chart-container { min-height: 140px; }
-  .chart-empty { min-height: 140px; }
-}
-
-@media (max-height: 760px) {
-  .chart-wrap { padding: 10px; }
-  .chart-title { font-size: 12px; margin-bottom: 6px; }
-  .chart-container { min-height: 100px; }
-  .chart-empty { min-height: 100px; }
-}

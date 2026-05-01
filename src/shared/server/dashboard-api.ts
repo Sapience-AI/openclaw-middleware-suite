@@ -405,6 +405,7 @@ export async function handleApiRoute(
         'providerCacheEnabled',
         'weightOverrides',
         'boundaryOverrides',
+        'overrideThresholds',
         'exclusions',
         'providerConfigs',
       ]) {

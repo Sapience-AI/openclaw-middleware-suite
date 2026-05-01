@@ -425,6 +425,14 @@ export class ModelRoutingMiddleware implements Middleware {
       Object.assign(base.scoring.boundaries, storeData.boundaryOverrides);
     }
 
+    // Override-threshold overrides — `shortMessageChars`, `largeContextTokens`,
+    // `reasoningKeywordMin`, `structuredOutputMinTier`. Same shallow-merge
+    // pattern as boundaries: only the fields the user touched override the
+    // defaults; everything else flows through unchanged.
+    if (storeData.overrideThresholds) {
+      Object.assign(base.scoring.overrides, storeData.overrideThresholds);
+    }
+
     // Per-profile tier overrides from disk store. Each profile slot is
     // applied independently — a write to `eco` doesn't touch `premium` or
     // `agentic`. Missing profile slots inherit the default (PROFILE_CONFIGS).

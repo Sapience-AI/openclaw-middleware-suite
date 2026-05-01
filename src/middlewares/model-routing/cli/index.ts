@@ -34,6 +34,10 @@ export function registerModelRoutingCommands(program: Command): void {
     .description('View or edit scoring configuration')
     .option('--set-weight <value>', 'Set dimension weight: "dimensionName 0.05"')
     .option('--set-boundary <value>', 'Set tier boundary: "simpleStandard -0.1"')
+    .option(
+      '--set-override <value>',
+      'Set override threshold: "shortMessageChars 100" (also: largeContextTokens, reasoningKeywordMin, structuredOutputMinTier)'
+    )
     .option('--enable-pinning', 'Turn session pinning on (default)')
     .option('--disable-pinning', 'Turn session pinning off — also disables provider prompt caching')
     .option('--enable-cache', 'Turn provider prompt caching on (requires pinning)')
