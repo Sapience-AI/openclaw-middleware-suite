@@ -10,21 +10,27 @@
 /**
  * Context Editing Middleware — Main Entry Point
  *
- * Implements the full Middleware interface including all OpenClaw
- * lifecycle surfaces (beforeToolCall, afterToolCall, beforeAgentStart,
- * beforePromptBuild, agentEnd, llmOutput).
+ * Single-hook compaction design (openclaw 2026.4.11+):
+ *  - `beforeModelResolve` (awaited, fires BEFORE the gateway's
+ *    SessionManager opens the session JSONL) does everything: walks the
+ *    JSONL via its own SessionManager.open(), evaluates adaptive
+ *    triggers, and runs compaction inline when the threshold is met.
+ *    Because SM_A hasn't opened yet, our SM_B can append the compaction
+ *    entry without forking the DAG. When the hook returns, the gateway
+ *    opens SM_A fresh, picks up the compaction entry, and the current
+ *    turn's LLM call sees compacted history.
+ *  - `beforePromptBuild` syncs live session stats (no trigger eval or
+ *    compaction).
  *
- * Two-phase compaction design:
- *  - `agentEnd` (fire-and-forget) evaluates adaptive triggers using the
- *    complete message set (including the current turn's response) and
- *    schedules compaction for the next turn's beforeAgentStart.
- *  - `beforeAgentStart` (awaited, runs BEFORE SessionManager opens the
- *    JSONL) executes the scheduled compaction.  Because no SM exists yet,
- *    our SessionManager.open can safely access the JSONL — no DAG fork.
- *    The next turn's user message lands AFTER the compaction summary.
- *  - `beforePromptBuild` syncs session stats (no trigger evaluation or
- *    compaction here).
- *  - `llmOutput` records per-turn assistant token usage for savings.
+ * The previous design relied on `agent_end` (push trigger eval),
+ * `before_agent_start` (consume schedule + run compaction), and
+ * `llm_output` (push per-turn assistant token tracking). All three are
+ * either deprecated (`before_agent_start`) or conversation-gated on
+ * 2026.4.27+ (`agent_end`, `llm_output`) and so are no longer registered
+ * in `plugin/index.ts`. Per-turn assistant token tracking is now PULLED
+ * from the JSONL on every `beforeModelResolve` call (same provider-
+ * reported `usage` data, just read instead of pushed) — UI-aligned
+ * `tokensSaved` precision is preserved.
  */
 
 import { createRequire } from 'module';
@@ -34,11 +40,10 @@ import {
   Middleware,
   MiddlewareContext,
   MiddlewareResult,
-  AgentStartContext,
+  ModelResolveContext,
+  ModelResolveResult,
   PromptBuildContext,
   PromptBuildResult,
-  AgentEndContext,
-  LlmOutputContext,
 } from '../../types.js';
 import { logger } from '../../shared/Logger.js';
 import { getOpenclawHome, getOpenclawDir } from '../../shared/env.js';
@@ -56,6 +61,38 @@ import { diag } from './diagnostic.js';
 
 const MIDDLEWARE_VERSION = '1.0.0';
 
+// ---------------------------------------------------------------------------
+// pi-coding-agent's SessionManager — structural types describing the
+// surface CE consumes. Used by `loadSessionManagerClass()` (called from
+// `beforeModelResolve` for the JSONL-pull path) and `requestCompaction`
+// (called inline from the same hook). Hoisted to module scope so both
+// sites can name the class type without re-declaring it.
+// ---------------------------------------------------------------------------
+type SessionEntry = {
+  type: string;
+  id: string;
+  parentId: string | null;
+  [k: string]: unknown;
+};
+type SessionHeader = { type: 'session'; id: string; version: number; [k: string]: unknown };
+type SessionInstance = {
+  buildSessionContext(): { messages: unknown[] };
+  getLeafId(): string | null;
+  getLeafEntry(): SessionEntry | undefined;
+  getHeader(): SessionHeader | null;
+  getEntries(): SessionEntry[];
+  appendCompaction(
+    summary: string,
+    firstKeptEntryId: string,
+    tokensBefore: number,
+    details?: unknown,
+    fromHook?: boolean
+  ): string;
+};
+type SessionManagerLike = {
+  open(file: string): SessionInstance;
+};
+
 export class ContextEditingMiddleware implements Middleware {
   readonly name = 'context_editing';
   readonly version = MIDDLEWARE_VERSION;
@@ -68,55 +105,21 @@ export class ContextEditingMiddleware implements Middleware {
   /** Reference to the OpenClaw plugin API — used for LLM calls in ICC extraction */
   private pluginApi: unknown = null;
 
-  /** Most recent compaction result per session for middleware-triggered compaction. */
-  private pendingCompactions = new Map<string, CompactionResult>();
-
-  /**
-   * Compaction requests to execute in the before_agent_start hook of the
-   * NEXT turn.  Populated by agent_end (fire-and-forget) when the trigger
-   * fires, consumed by onBeforeAgentStart (awaited, runs BEFORE the
-   * SessionManager opens the JSONL).  This two-phase approach avoids:
-   *  1. DAG forking — no concurrent SessionManager access
-   *  2. Message loss — the triggering turn's messages are already in the
-   *     JSONL when compaction runs, and the next turn's user message
-   *     lands AFTER the compaction summary
-   */
-  private beforeAgentStartCompactions = new Map<
-    string,
-    {
-      hookCtx: Record<string, unknown>;
-      iccResult: CompactionResult;
-      iccInputTranscript: string;
-    }
-  >();
-
   /**
    * Sessions currently being compacted by requestCompaction().
    * Prevents recursive trigger evaluation when the compaction agent's
-   * own before_prompt_build hook fires back into our middleware.
+   * own before_model_resolve hook fires back into our middleware.
    */
   private compactingSessionIds = new Set<string>();
 
   /**
    * Sessions that have received at least one real user message (after
-   * filtering out startup and tool_result messages). onLlmOutput only
-   * accumulates assistant output tokens for sessions in this set so
-   * that the greeting and tool-call responses don't inflate savings.
+   * filtering out startup and tool_result messages). The pull-based token
+   * accumulator (in `beforeModelResolve`) only writes a per-session total
+   * for sessions in this set, so the greeting / tool-call exchanges that
+   * precede real conversation don't inflate the `tokensSaved` baseline.
    */
   private sessionsWithRealUserMessages = new Set<string>();
-
-  /**
-   * Tracks the main agent's runId for each session so that onLlmOutput
-   * can distinguish the main agent's late-arriving llm_output (which
-   * should still be accumulated) from the compaction agent's llm_output
-   * (which should be skipped).
-   *
-   * OpenClaw dispatches llm_output fire-and-forget (no await) in
-   * attempt.ts, so it can arrive AFTER agent_end has already added the
-   * session to compactingSessionIds.  Without this runId check, the
-   * main agent's final turn tokens are lost, producing tokensSaved: 0.
-   */
-  private mainAgentRunIds = new Map<string, string>();
 
   async initialize(config: Record<string, unknown>): Promise<void> {
     // The class is a dumb delegator — it always runs when called. Plugin
@@ -303,13 +306,6 @@ export class ContextEditingMiddleware implements Middleware {
 
       if (!sessionKey) return;
 
-      // Track the main agent's runId so llmOutput can distinguish
-      // the main agent's late-arriving output from the compaction
-      // agent's output (both share the same sessionKey).
-      if (context.runId) {
-        this.mainAgentRunIds.set(sessionKey, context.runId);
-      }
-
       // --- Recursion Guard (Issue 3) ---
       // If this session is currently being compacted by our own
       // requestCompaction(), skip trigger evaluation entirely so we
@@ -368,246 +364,290 @@ export class ContextEditingMiddleware implements Middleware {
   }
 
   /**
-   * Called at the START of each turn, BEFORE the SessionManager opens the
-   * JSONL file. This is the safe window to run compaction — no SM_A exists
-   * yet, so delegateCompactionToRuntime can open its own SM without forking
-   * the DAG. The hook is AWAITED by OpenClaw, so compaction completes
-   * before the turn proceeds.
-   */
-  async beforeAgentStart(context: AgentStartContext): Promise<void> {
-    try {
-      const sessionKey = context.sessionKey;
-
-      diag('beforeAgentStart ENTERED', {
-        sessionKey: sessionKey || '(missing)',
-        hasPendingCompaction: sessionKey ? this.beforeAgentStartCompactions.has(sessionKey) : false,
-      });
-
-      if (!sessionKey) return;
-
-      const scheduled = this.beforeAgentStartCompactions.get(sessionKey);
-      if (!scheduled) {
-        diag('beforeAgentStart: no compaction scheduled for this session', { sessionKey });
-        return;
-      }
-
-      this.beforeAgentStartCompactions.delete(sessionKey);
-
-      diag('beforeAgentStart: executing scheduled compaction (pre-SM)', { sessionKey });
-
-      try {
-        await this.requestCompaction(
-          sessionKey,
-          scheduled.hookCtx,
-          scheduled.iccResult,
-          scheduled.iccInputTranscript
-        );
-      } catch (err) {
-        logger.error('[ContextEditingMiddleware] beforeAgentStart compaction failed', {
-          sessionKey,
-          error: err,
-        });
-      }
-
-      // Clear pending ICC so it doesn't leak into the new turn
-      this.pendingCompactions.delete(sessionKey);
-    } catch (err) {
-      logger.error('[ContextEditingMiddleware] beforeAgentStart error', { error: err });
-    }
-  }
-
-  /**
-   * Called by the agent_end lifecycle hook AFTER the LLM response has been
-   * persisted to the JSONL file.  Evaluates adaptive triggers using the
-   * complete message set (including the current turn's response) and
-   * schedules compaction for the NEXT turn's before_agent_start hook.
+   * Load-bearing hook on openclaw 2026.4.27+ where `agent_end` and
+   * `llm_output` are conversation-gated and silently dropped for non-
+   * bundled plugins. `before_model_resolve` is ungated, non-deprecated,
+   * and — crucially — fires BEFORE the gateway's SessionManager (SM_A)
+   * opens the session JSONL ([run.ts:449](openclaw runs `resolveHookModelSelection`
+   * before `attempt.ts:1268` opens SM_A)). That's the only safe window
+   * where we can open our own SM_B and append a compaction entry without
+   * concurrent-SM-on-same-file (DAG fork).
    *
-   * This is fire-and-forget — OpenClaw does not await agent_end.
+   * This single hook replaces the previous three-hook pipeline:
+   *   - `agent_end` of msg N        → trigger eval + ICC extraction
+   *   - schedule for next turn      → `beforeAgentStartCompactions` map
+   *   - `before_agent_start` of msg N+1 → consume schedule, run compaction
+   *
+   * On openclaw <= 2026.4.23 (where the legacy hooks weren't gated yet)
+   * this same hook fires too — `before_model_resolve` has been around
+   * since at least 2026.2.22 and the dispatch site is unchanged across
+   * the supported peerDep range. So a single registration works on
+   * every supported version.
+   *
+   * Per-turn assistant token tracking (formerly via `llm_output`) is
+   * also pulled here: we walk the JSONL entries and sum each assistant
+   * message's `input + output` usage into the store's per-session
+   * accumulator. `consumeAccumulatedUsage()` reads it at compaction
+   * time for the UI-aligned `tokensSaved` metric — same precision as
+   * the previous push-based path.
    */
-  async agentEnd(context: AgentEndContext): Promise<void> {
+  async beforeModelResolve(context: ModelResolveContext): Promise<ModelResolveResult | void> {
     try {
       const sessionKey = context.sessionKey;
-
-      diag('agentEnd ENTERED', {
-        sessionKey: sessionKey || '(missing)',
-        messageCount: context.messages?.length,
-        success: context.success,
-        durationMs: context.durationMs,
-      });
-
       if (!sessionKey) return;
 
-      // --- Recursion Guard ---
+      // Recursion guard — when `requestCompaction` spins up the compaction
+      // agent's own LLM run, that run's `before_model_resolve` re-enters
+      // here. Bail to avoid scheduling another compaction inside the one
+      // we just started.
       if (this.compactingSessionIds.has(sessionKey)) {
-        diag('agentEnd: skipping — session is mid-compaction', { sessionKey });
+        diag('beforeModelResolve: skipping — session is mid-compaction', { sessionKey });
         return;
       }
 
-      // --- Adaptive Trigger Evaluation ---
-      // Evaluate here instead of beforePromptBuild so the trigger sees
-      // ALL messages including the current turn's response. If it fires,
-      // schedule compaction for the next turn's beforeAgentStart (which
-      // runs before SM_A opens — no DAG fork).
-      if (context.messages) {
-        const conversationMessages = this.filterMessagesForICC(context.messages);
-        let userMessageCount = 0;
-        for (const msg of conversationMessages) {
-          if ((msg as Record<string, unknown>).role === 'user') userMessageCount++;
-        }
+      const sessionId = (context.sessionId as string) || undefined;
+      const agentId = (context.agentId as string) || 'main';
+      if (!sessionId) {
+        diag('beforeModelResolve: skipping — no sessionId in ctx', { sessionKey });
+        return;
+      }
 
-        if (userMessageCount >= 1) {
-          this.sessionsWithRealUserMessages.add(sessionKey);
-        }
+      // Resolve the session JSONL file path. Same path the gateway will
+      // open as SM_A in a few hundred microseconds — but our SM_B is
+      // closed before SM_A opens, so they never overlap.
+      const path = await import('path');
+      const fs = await import('fs');
+      const os = await import('os');
+      const openclawHome =
+        getOpenclawHome() || getOpenclawDir() || path.join(os.homedir(), '.openclaw');
+      const sessionFile = path.join(
+        openclawHome,
+        'agents',
+        agentId,
+        'sessions',
+        `${sessionId}.jsonl`
+      );
 
-        const estimatedTokens = this.estimateTokens(
-          conversationMessages
-            .map((m) => this.extractCleanedTextForICC(m as Record<string, unknown>))
-            .join(' ')
-        );
-        this.triggerEvaluator.syncSessionStats(sessionKey, userMessageCount, estimatedTokens);
-
-        const buffer = this.triggerEvaluator.getSessionBuffer(sessionKey);
-        const stats = { messageCount: buffer.messageCount, tokenCount: buffer.estimatedTokens };
-        diag('agentEnd: session stats', {
+      if (!fs.existsSync(sessionFile)) {
+        // First-ever turn for this session — no transcript on disk yet,
+        // nothing to count, nothing to compact.
+        diag('beforeModelResolve: session file not found (first turn)', {
           sessionKey,
-          userMessageCount: stats.messageCount,
-          userMessageDelta: stats.messageCount - buffer.baselineMessageCount,
-          tokenCount: stats.tokenCount,
-          tokenDelta: stats.tokenCount - buffer.baselineTokens,
+          sessionFile,
         });
+        return;
+      }
 
-        const trigger = this.triggerEvaluator.shouldCompact(sessionKey, stats, this.config);
-        diag('agentEnd: trigger evaluation', {
-          trigger: trigger || '(null - no trigger)',
-          configTriggerMode: this.config.triggerMode,
-          configMessageThreshold: this.config.messageThreshold,
-          configTokenThreshold: this.config.tokenThreshold,
+      // Lazy-load pi-coding-agent's SessionManager class. Same resolution
+      // logic as `requestCompaction()` — anchored to OpenClaw's process
+      // entry point (`process.argv[1]`) so we find the version actually
+      // running, not whatever might be in our own node_modules.
+      const SessionManagerClass = await this.loadSessionManagerClass();
+      if (!SessionManagerClass) {
+        diag('beforeModelResolve: SessionManager class unavailable — skipping', {
+          sessionKey,
         });
+        return;
+      }
 
-        if (
-          trigger &&
-          !this.pendingCompactions.has(sessionKey) &&
-          !this.beforeAgentStartCompactions.has(sessionKey)
-        ) {
-          logger.info('[ContextEditingMiddleware] Trigger threshold met — running ICC pipeline', {
-            sessionKey,
-            trigger,
-            stats,
-          });
+      const sm = SessionManagerClass.open(sessionFile);
+      const messages = sm.buildSessionContext().messages;
+      const entries = sm.getEntries();
 
-          const transcript = conversationMessages
-            .map((m) => this.extractTextFromMessage(m))
-            .join('\n\n');
+      diag('beforeModelResolve ENTERED', {
+        sessionKey,
+        sessionId,
+        rawMessageCount: messages.length,
+        entryCount: entries.length,
+      });
 
-          const iccInputTranscript = conversationMessages
-            .map((msg) => {
-              const m = msg as Record<string, unknown>;
-              const role = String(m.role || '');
-              const text = this.extractCleanedTextForICC(m).trim();
-              if (!text) return '';
-              return `${role}:\n${text}`;
-            })
-            .filter(Boolean)
-            .join('\n\n');
+      // ── Filter conversation messages (drop startup, tool_result-as-user,
+      // already-compacted prefix). Same helper agent_end used.
+      const conversationMessages = this.filterMessagesForICC(messages);
+      let userMessageCount = 0;
+      for (const msg of conversationMessages) {
+        if ((msg as Record<string, unknown>).role === 'user') userMessageCount++;
+      }
 
-          diag('agentEnd: filtered messages for ICC', {
-            totalMessages: context.messages.length,
-            conversationMessages: conversationMessages.length,
-            filtered: context.messages.length - conversationMessages.length,
-          });
+      if (userMessageCount >= 1) {
+        this.sessionsWithRealUserMessages.add(sessionKey);
+      }
 
-          const iccResult = await this.curator.curate(
-            transcript,
-            this.config.icc,
-            trigger,
-            this.pluginApi
-          );
-          this.pendingCompactions.set(sessionKey, iccResult);
-
-          diag('agentEnd: ICC pipeline complete — scheduling compaction for beforeAgentStart', {
-            sessionKey,
-            entityCount: iccResult.extractedEntities.length,
-            conflictCount: iccResult.resolvedConflicts.length,
-            priorityCount: iccResult.prioritySegments.length,
-          });
-
-          this.beforeAgentStartCompactions.set(sessionKey, {
-            hookCtx: context as Record<string, unknown>,
-            iccResult,
-            iccInputTranscript,
-          });
+      // ── Pull-based assistant token tracking (replaces llm_output push).
+      // Walk every persisted assistant message in the JSONL and sum its
+      // `input + output` usage. The pull model overwrites the per-session
+      // counter each turn (rather than incrementing) because we're reading
+      // the full transcript, not a per-turn delta. `consumeAccumulatedUsage`
+      // at compaction time still reads + resets the counter as before.
+      if (this.sessionsWithRealUserMessages.has(sessionKey)) {
+        const totalAssistantUsage = this.computeAssistantUsageFromEntries(entries);
+        if (totalAssistantUsage > 0) {
+          this.store.setAccumulatedUsage(sessionKey, totalAssistantUsage);
         }
       }
+
+      // ── Adaptive trigger evaluation. Same TriggerEvaluator math agent_end
+      // ran; the only difference is the source (filtered messages from
+      // SM_B vs. context.messages from agent_end's event arg).
+      const estimatedTokens = this.estimateTokens(
+        conversationMessages
+          .map((m) => this.extractCleanedTextForICC(m as Record<string, unknown>))
+          .join(' ')
+      );
+      this.triggerEvaluator.syncSessionStats(sessionKey, userMessageCount, estimatedTokens);
+
+      const buffer = this.triggerEvaluator.getSessionBuffer(sessionKey);
+      const stats = { messageCount: buffer.messageCount, tokenCount: buffer.estimatedTokens };
+      diag('beforeModelResolve: session stats', {
+        sessionKey,
+        userMessageCount: stats.messageCount,
+        userMessageDelta: stats.messageCount - buffer.baselineMessageCount,
+        tokenCount: stats.tokenCount,
+        tokenDelta: stats.tokenCount - buffer.baselineTokens,
+      });
+
+      const trigger = this.triggerEvaluator.shouldCompact(sessionKey, stats, this.config);
+      diag('beforeModelResolve: trigger evaluation', {
+        trigger: trigger || '(null - no trigger)',
+        configTriggerMode: this.config.triggerMode,
+        configMessageThreshold: this.config.messageThreshold,
+        configTokenThreshold: this.config.tokenThreshold,
+      });
+
+      if (!trigger) return;
+
+      logger.info('[ContextEditingMiddleware] Trigger threshold met — running ICC pipeline', {
+        sessionKey,
+        trigger,
+        stats,
+      });
+
+      // Build transcripts for ICC extraction (same shape agent_end used).
+      const transcript = conversationMessages
+        .map((m) => this.extractTextFromMessage(m as Record<string, unknown>))
+        .join('\n\n');
+
+      const iccInputTranscript = conversationMessages
+        .map((msg) => {
+          const m = msg as Record<string, unknown>;
+          const role = String(m.role || '');
+          const text = this.extractCleanedTextForICC(m).trim();
+          if (!text) return '';
+          return `${role}:\n${text}`;
+        })
+        .filter(Boolean)
+        .join('\n\n');
+
+      diag('beforeModelResolve: filtered messages for ICC', {
+        totalMessages: messages.length,
+        conversationMessages: conversationMessages.length,
+        filtered: messages.length - conversationMessages.length,
+      });
+
+      // Run ICC extraction (LLM call to the compaction model).
+      const iccResult = await this.curator.curate(
+        transcript,
+        this.config.icc,
+        trigger,
+        this.pluginApi
+      );
+
+      diag('beforeModelResolve: ICC pipeline complete — running compaction inline', {
+        sessionKey,
+        entityCount: iccResult.extractedEntities.length,
+        conflictCount: iccResult.resolvedConflicts.length,
+        priorityCount: iccResult.prioritySegments.length,
+      });
+
+      // Run compaction synchronously — pre-SM_A, so it's safe to open SM_B
+      // and append. When this hook returns, the gateway opens SM_A fresh,
+      // reads the just-written compaction entry, and the current turn's
+      // LLM call sees compacted history (matches the 4.11 agent_end →
+      // before_agent_start two-hop in a single hop).
+      await this.requestCompaction(
+        sessionKey,
+        context as Record<string, unknown>,
+        iccResult,
+        iccInputTranscript
+      );
     } catch (err) {
-      logger.error('[ContextEditingMiddleware] agentEnd error', { error: err });
+      logger.error('[ContextEditingMiddleware] beforeModelResolve error', { error: err });
     }
   }
 
   /**
-   * Called per LLM response to record exact per-turn assistant message usage.
-   * This is used later to calculate UI-aligned token savings during compaction.
+   * Sum `input + output` usage on every persisted assistant message in
+   * the JSONL entry list. Replaces the `llm_output` push-based path on
+   * openclaw 2026.4.27+ (where that hook is conversation-gated). Each
+   * entry's `message.usage` is the same provider-reported usage object
+   * that `llm_output` would have pushed to us per turn — so precision
+   * matches `'assistant-output-accumulated'`, not the
+   * `'fallback-estimate'` path.
    */
-  async llmOutput(context: LlmOutputContext): Promise<void> {
-    try {
-      const sessionKey = context.sessionKey;
-
-      if (!sessionKey) return;
-
-      // Skip the compaction agent's own LLM output — its tokens are not
-      // part of the user conversation and should not inflate savings.
-      // However, the main agent's llm_output may arrive LATE because
-      // OpenClaw dispatches it fire-and-forget (no await in attempt.ts).
-      // It can land after agentEnd has already added the session to
-      // compactingSessionIds. We use the runId to distinguish:
-      //   - same runId as the main agent → late main output, accumulate
-      //   - different runId → compaction agent's output, skip
-      if (this.compactingSessionIds.has(sessionKey)) {
-        const eventRunId = context.runId;
-        const mainRunId = this.mainAgentRunIds.get(sessionKey);
-        if (!mainRunId || mainRunId !== eventRunId) {
-          diag('llmOutput: skipping — compaction agent output', {
-            sessionKey,
-            eventRunId,
-            mainRunId,
-          });
-          return;
-        }
-        diag('llmOutput: accumulating late main-agent output during compaction', {
-          sessionKey,
-          runId: eventRunId,
-        });
-      }
-
-      // Skip if no real user message has been seen yet — the greeting and
-      // tool-call responses should not count toward token savings.
-      if (!this.sessionsWithRealUserMessages.has(sessionKey)) {
-        diag('llmOutput: skipping — no real user messages yet', { sessionKey });
-        return;
-      }
-
-      // usage shape: { input?, output?, cacheRead?, cacheWrite?, total? }
-      //   total = input + output + cacheRead + cacheWrite (full API call cost)
-      //   We accumulate input + output only. cacheRead/cacheWrite and
-      //   full usage.total remain excluded from the savings numerator.
-      const inputTokens = context.usage?.input ?? 0;
-      const outputTokens = context.usage?.output ?? 0;
-      const inputPlusOutputTokens = inputTokens + outputTokens;
-      if (!inputPlusOutputTokens) return;
-
-      diag('llmOutput: recording assistant input+output usage', {
-        sessionKey,
-        input: inputTokens,
-        output: outputTokens,
-        inputPlusOutput: inputPlusOutputTokens,
-        total: context.usage?.total,
-      });
-
-      // Accumulate INPUT + OUTPUT only. This keeps the existing gate while
-      // still excluding cache tokens and full request cost from savings.
-      this.store.accumulateAssistantUsage(sessionKey, inputPlusOutputTokens);
-    } catch (err) {
-      logger.error('[ContextEditingMiddleware] llmOutput error', { error: err });
+  private computeAssistantUsageFromEntries(entries: unknown[]): number {
+    let total = 0;
+    for (const raw of entries) {
+      const entry = raw as Record<string, unknown> | null;
+      if (!entry || typeof entry !== 'object') continue;
+      if (entry.type !== 'message') continue;
+      const message = entry.message as
+        | { role?: string; usage?: Record<string, unknown> }
+        | undefined;
+      if (!message || message.role !== 'assistant') continue;
+      const usage = message.usage;
+      if (!usage || typeof usage !== 'object') continue;
+      // Provider-reported usage uses `input`/`output` (pi-ai normalized
+      // shape) — sum both. cacheRead/cacheWrite are intentionally excluded
+      // (full request cost vs. compaction-eligible tokens; the previous
+      // push-based path drew the same line).
+      const input = typeof usage.input === 'number' ? usage.input : 0;
+      const output = typeof usage.output === 'number' ? usage.output : 0;
+      total += input + output;
     }
+    return total;
+  }
+
+  /**
+   * Lazy-load (and cache) pi-coding-agent's `SessionManager` class.
+   * Resolves from the OpenClaw host process's entry point, not our own
+   * node_modules — this keeps us bound to whichever version is actually
+   * running. `requestCompaction` uses the same loader; we call it here
+   * so `beforeModelResolve` doesn't have to duplicate the resolution
+   * logic.
+   */
+  private cachedSessionManagerClass: SessionManagerLike | null = null;
+  private async loadSessionManagerClass(): Promise<SessionManagerLike | null> {
+    if (this.cachedSessionManagerClass) return this.cachedSessionManagerClass;
+    try {
+      const path = await import('path');
+      const fs = await import('fs');
+      const anchors = [process.argv[1]].filter(Boolean);
+      for (const anchor of anchors) {
+        try {
+          const hostRequire = createRequire(anchor);
+          const searchPaths = hostRequire.resolve.paths('@mariozechner/pi-coding-agent');
+          if (!searchPaths) continue;
+
+          const entryPath = searchPaths
+            .map((dir: string) =>
+              path.join(dir, '@mariozechner', 'pi-coding-agent', 'dist', 'index.js')
+            )
+            .find((p: string) => fs.existsSync(p));
+          if (!entryPath) continue;
+
+          const mod = await import(pathToFileURL(entryPath).href);
+          if (mod?.SessionManager?.open) {
+            this.cachedSessionManagerClass = mod.SessionManager as SessionManagerLike;
+            return this.cachedSessionManagerClass;
+          }
+        } catch {
+          continue;
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+    return null;
   }
 
   // --- Accessors for CLI commands ---
@@ -963,77 +1003,17 @@ export class ContextEditingMiddleware implements Middleware {
         priorityCount: iccResult.prioritySegments.length,
       });
 
-      // Import SessionManager from pi-coding-agent (openclaw's dependency).
-      // The package lives in OpenClaw's node_modules, not ours. Use
-      // createRequire anchored to the host process entry point to resolve
-      // the path, then native import() to load it (ESM-safe).
-      type SessionEntry = {
-        type: string;
-        id: string;
-        parentId: string | null;
-        [k: string]: unknown;
-      };
-      type SessionHeader = { type: 'session'; id: string; version: number; [k: string]: unknown };
-      type SessionInstance = {
-        buildSessionContext(): { messages: unknown[] };
-        getLeafId(): string | null;
-        getLeafEntry(): SessionEntry | undefined;
-        getHeader(): SessionHeader | null;
-        getEntries(): SessionEntry[];
-        appendCompaction(
-          summary: string,
-          firstKeptEntryId: string,
-          tokensBefore: number,
-          details?: unknown,
-          fromHook?: boolean
-        ): string;
-      };
-      type SessionManagerLike = {
-        open(file: string): SessionInstance;
-      };
-      let SessionManagerClass: SessionManagerLike | null = null;
-
-      // Resolve from OpenClaw's process entry point. The package's exports
-      // map has no CJS main, so require.resolve() fails — use resolve.paths()
-      // to get the node_modules search dirs and locate the entry file directly.
-      const anchors = [process.argv[1]].filter(Boolean);
-      for (const anchor of anchors) {
-        try {
-          const hostRequire = createRequire(anchor);
-          const searchPaths = hostRequire.resolve.paths('@mariozechner/pi-coding-agent');
-          if (!searchPaths) continue;
-
-          const entryPath = searchPaths
-            .map((dir) => path.join(dir, '@mariozechner', 'pi-coding-agent', 'dist', 'index.js'))
-            .find((p) => fs.existsSync(p));
-          if (!entryPath) continue;
-
-          const mod = await import(pathToFileURL(entryPath).href);
-          diag('requestCompaction: pi-coding-agent resolved', {
-            anchor,
-            entryPath,
-            hasSessionManager: !!mod?.SessionManager,
-            hasOpen: !!mod?.SessionManager?.open,
-            exportKeys: mod ? Object.keys(mod).slice(0, 15) : [],
-          });
-          if (mod?.SessionManager?.open) {
-            SessionManagerClass = mod.SessionManager as SessionManagerLike;
-            break;
-          }
-        } catch (resolveErr) {
-          diag('requestCompaction: pi-coding-agent resolve failed', {
-            anchor,
-            error: resolveErr instanceof Error ? resolveErr.message : String(resolveErr),
-          });
-          continue;
-        }
-      }
-
+      // Resolve pi-coding-agent's SessionManager class via the shared
+      // `loadSessionManagerClass()` helper (also used by
+      // `beforeModelResolve`). The helper caches the resolved class on
+      // first use, so subsequent calls are essentially free.
+      const SessionManagerClass = await this.loadSessionManagerClass();
       if (!SessionManagerClass) {
-        diag('requestCompaction: SessionManager not available', { anchors });
+        diag('requestCompaction: SessionManager not available', {
+          argv1: process.argv[1],
+        });
         logger.warn(
-          '[ContextEditingMiddleware] SessionManager not available — could not resolve @mariozechner/pi-coding-agent',
-          { anchors }
+          '[ContextEditingMiddleware] SessionManager not available — could not resolve @mariozechner/pi-coding-agent'
         );
         return;
       }
@@ -1223,10 +1203,13 @@ export class ContextEditingMiddleware implements Middleware {
         tokensSavedSource,
       });
 
-      // Always reset state after a compaction attempt, regardless of outcome
+      // Always reset trigger state after a compaction attempt, regardless
+      // of outcome. The legacy `pendingCompactions` /
+      // `beforeAgentStartCompactions` maps used by the agent_end →
+      // before_agent_start scheduling pattern are gone — the new flow runs
+      // compaction inline within `before_model_resolve`, so there's
+      // nothing to drain here.
       this.triggerEvaluator.resetSession(sessionKey);
-      this.pendingCompactions.delete(sessionKey);
-      this.beforeAgentStartCompactions.delete(sessionKey);
     } catch (err) {
       logger.error('[ContextEditingMiddleware] requestCompaction error', { error: err });
     } finally {

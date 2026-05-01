@@ -88,6 +88,30 @@ export interface AgentStartContext extends LifecycleContext {
   prompt?: unknown;
   messages?: unknown[];
 }
+
+/**
+ * `before_model_resolve` normalized context — fires very early in each
+ * turn, **before** the gateway opens its SessionManager (SM_A) on the
+ * session JSONL. This is the only ungated, non-deprecated hook on
+ * openclaw 2026.4.27+ that fires before SM_A, so it's the safe window
+ * for middleware compaction (which needs to open its own SM_B and
+ * append-write to the JSONL without forking the DAG).
+ *
+ * The event itself only carries `prompt` and `attachments` for model-
+ * routing decisions; CE doesn't use those. CE reads sessionKey /
+ * sessionId / agentId from the ctx and pulls the actual transcript
+ * directly off disk via `SessionManager.open(sessionFile).getEntries()`.
+ */
+export interface ModelResolveContext extends LifecycleContext {
+  prompt?: unknown;
+  attachments?: unknown[];
+}
+export interface ModelResolveResult {
+  /** Override the model id for this turn (e.g. "anthropic/claude-haiku-4-5"). */
+  modelOverride?: string;
+  /** Override the provider id for this turn (e.g. "anthropic"). */
+  providerOverride?: string;
+}
 export interface AgentStartResult {
   /** Prepend string(s) to the agent's system context (used by the prompt-guard). */
   prependContext?: string[];
@@ -155,6 +179,7 @@ export interface Middleware {
 
   // ── OpenClaw lifecycle events ────────────────────────────────────────
   beforeAgentStart?(context: AgentStartContext): Promise<AgentStartResult | void>;
+  beforeModelResolve?(context: ModelResolveContext): Promise<ModelResolveResult | void>;
   beforePromptBuild?(context: PromptBuildContext): Promise<PromptBuildResult | void>;
   beforeMessageWrite?(
     context: MessageWriteContext

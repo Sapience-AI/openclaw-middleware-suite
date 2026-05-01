@@ -148,10 +148,15 @@ export function ContextEditingPage(_props: { path?: string }) {
   const [audit, setAudit] = useState<unknown[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<'overview' | 'config' | 'logs'>('overview');
+  const [refreshing, setRefreshing] = useState(false);
   const enabled = useMiddlewareEnabled('context-editing');
 
-  useEffect(() => {
-    Promise.all([
+  // Re-fetch every panel of CE data. Used both at mount and from the
+  // explicit refresh button on the page header. Errors per-endpoint are
+  // swallowed so a single failing fetch doesn't leave the whole page
+  // blank — same pattern as Model Routing's `loadAll`.
+  const loadAll = async () => {
+    await Promise.all([
       fetchContextEditingConfig()
         .then((c) => {
           setConfig({
@@ -173,8 +178,21 @@ export function ContextEditingPage(_props: { path?: string }) {
         .catch(() => {}),
       fetchContextEditingStats().then(setStats).catch(() => {}),
       fetchContextEditingAudit(100).then(setAudit).catch(() => {}),
-    ]).finally(() => setLoading(false));
+    ]);
+  };
+
+  useEffect(() => {
+    loadAll().finally(() => setLoading(false));
   }, []);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await loadAll();
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   const auditColumns = [
     {
@@ -201,6 +219,9 @@ export function ContextEditingPage(_props: { path?: string }) {
       <div class="section-eyebrow">Middleware</div>
       <h1 class="section-title">Context Editing</h1>
 
+      {/* Tabs + Refresh — same layout pattern as ModelRoutingPage so the
+          two pages stay visually consistent. The button re-uses the
+          `sai-spin` keyframe in components.css for the in-flight icon. */}
       <div class="flex-between mb-16">
         <div style={{ display: 'flex', gap: '4px' }}>
           {(['overview', 'config', 'logs'] as const).map((t) => (
@@ -214,6 +235,31 @@ export function ContextEditingPage(_props: { path?: string }) {
             </button>
           ))}
         </div>
+        <button
+          class="btn-secondary btn-sm"
+          onClick={handleRefresh}
+          disabled={loading || refreshing}
+          title="Re-fetch config, stats, and compaction audit log"
+          aria-label="Refresh context editing data"
+        >
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              style={refreshing ? { animation: 'sai-spin 0.9s linear infinite' } : undefined}
+            >
+              <path d="M1 4v6h6" />
+              <path d="M3.51 15a9 9 0 105.64-12.36L3 9" />
+            </svg>
+            {refreshing ? 'Refreshing…' : 'Refresh'}
+          </span>
+        </button>
       </div>
 
       {loading && (

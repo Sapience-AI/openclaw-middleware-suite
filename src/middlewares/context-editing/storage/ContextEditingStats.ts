@@ -110,15 +110,24 @@ export class ContextEditingStats {
   }
 
   /**
-   * Accumulate exact usage for an assistant turn (from llm_output hook).
-   * Since llm_output doesn't provide a message ID, we simply accumulate
-   * assistant input+output usage per session after the middleware gate.
-   * At compaction time, all accumulated usage represents the assistant
-   * turns being compacted away.
+   * Replace the accumulated assistant usage for a session with `totalTokens`.
+   *
+   * On every turn, `beforeModelResolve` walks the session JSONL, sums each
+   * persisted assistant message's `input + output` usage, and sets the
+   * total here. `consumeAccumulatedUsage` then reads it at compaction time
+   * for the UI-aligned `tokensSaved` metric.
+   *
+   * The pull-based JSONL-scan model replaces the previous `llm_output`
+   * push that lived in this store. Each turn's read overwrites the prior
+   * value with the full transcript total, so the counter is always
+   * consistent with what's on disk.
+   *
+   * Functionally distinct from a delta-style accumulator: this method
+   * recomputes the full sum each turn, so it overwrites rather than accrues.
    */
-  accumulateAssistantUsage(sessionKey: string, totalTokens: number): void {
+  setAccumulatedUsage(sessionKey: string, totalTokens: number): void {
     const history = this.getOrCreateSessionHistory(sessionKey);
-    history.accumulatedAssistantUsage = (history.accumulatedAssistantUsage ?? 0) + totalTokens;
+    history.accumulatedAssistantUsage = totalTokens;
     this.save();
   }
 

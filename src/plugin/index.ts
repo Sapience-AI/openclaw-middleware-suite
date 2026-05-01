@@ -455,56 +455,44 @@ export default {
           ...((hookCtx ?? {}) as Record<string, unknown>),
         });
 
+        // Single load-bearing hook: `before_model_resolve` fires before
+        // the gateway's SessionManager opens the JSONL ([run.ts:449] →
+        // [setup.ts:61]), which is the only safe window to open our own
+        // SM, append a compaction entry, and let the just-opened SM_A
+        // pick it up — without forking the DAG.
+        //
+        // This single registration replaces four legacy registrations
+        // (before_agent_start / before_prompt_build / agent_end /
+        // llm_output) used on openclaw <= 2026.4.23. Reasons:
+        //   - `before_agent_start` is `@deprecated` per
+        //     [hook-types.ts:803] in openclaw 2026.4.27.
+        //   - `agent_end` and `llm_output` are conversation-gated per
+        //     [registry.ts:1956-1977] and silently dropped for non-
+        //     bundled plugins (gate added in 2026.4.24).
+        //   - `before_prompt_build` would still register, but its job
+        //     was live stats sync that `before_model_resolve` already
+        //     performs at turn start. Dropping it removes redundant
+        //     work and keeps us clear of the prompt-injection gate
+        //     surface.
+        //
+        // The hook is ungated, non-deprecated, and has been firing with
+        // a stable shape since at least openclaw 2026.2.22 — well
+        // before our `peerDependencies.openclaw >= 2026.4.11` floor.
         tryOn(
           api,
-          'before_agent_start',
+          'before_model_resolve',
           (...args: unknown[]) => {
             if (!ContextEditingPolicyStore.isPluginEnabled()) return;
-            diag('>>> before_agent_start HOOK DISPATCHED (context-editing)', {
-              argCount: args.length,
-            });
-            return contextEditing.beforeAgentStart(mergeCtx(args[0], args[1]));
-          },
-          'context-editing:before_agent_start'
-        );
-
-        tryOn(
-          api,
-          'before_prompt_build',
-          (...args: unknown[]) => {
-            if (!ContextEditingPolicyStore.isPluginEnabled()) return;
-            diag('>>> before_prompt_build HOOK DISPATCHED', {
+            diag('>>> before_model_resolve HOOK DISPATCHED', {
               argCount: args.length,
               arg0Keys:
                 args[0] && typeof args[0] === 'object' ? Object.keys(args[0] as object) : [],
               arg1Keys:
                 args[1] && typeof args[1] === 'object' ? Object.keys(args[1] as object) : [],
             });
-            return contextEditing.beforePromptBuild(mergeCtx(args[0], args[1]));
+            return contextEditing.beforeModelResolve(mergeCtx(args[0], args[1]));
           },
-          'context-editing:before_prompt_build'
-        );
-
-        tryOn(
-          api,
-          'agent_end',
-          (...args: unknown[]) => {
-            if (!ContextEditingPolicyStore.isPluginEnabled()) return;
-            diag('>>> agent_end HOOK DISPATCHED', { argCount: args.length });
-            return contextEditing.agentEnd(mergeCtx(args[0], args[1]));
-          },
-          'context-editing:agent_end'
-        );
-
-        tryOn(
-          api,
-          'llm_output',
-          (...args: unknown[]) => {
-            if (!ContextEditingPolicyStore.isPluginEnabled()) return;
-            diag('>>> llm_output HOOK DISPATCHED', { argCount: args.length });
-            return contextEditing.llmOutput(mergeCtx(args[0], args[1]));
-          },
-          'context-editing:llm_output'
+          'context-editing:before_model_resolve'
         );
       }
       if (isFirstLoad && activeMiddlewares['context-editing'] !== true) {
