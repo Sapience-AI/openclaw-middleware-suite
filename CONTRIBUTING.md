@@ -320,6 +320,49 @@ When contributing security-related code:
 
 ---
 
+## Third-party licenses
+
+`NOTICE` lists every project this suite is **derived from** (Reins,
+Manifest, ClawRouter, OpenClaw Shield, OpenGuardrails) and cites
+per-file Apache §4(b) / MIT attribution headers. In addition, every
+package declared in `package.json` ships under its own license; the
+authoritative text for each transitive dep lives under that package's
+folder in `node_modules/`. Source-only distribution (npm package +
+GitHub source) treats this as sufficient — recipients install the
+deps themselves and inherit each one's license terms directly from
+the upstream registry.
+
+**However, before publishing any artifact that bundles dependencies**,
+generate a `THIRD_PARTY_LICENSES.md` covering every transitive that
+ends up in the artifact. Bundled artifacts include:
+
+- A single-file bundle (e.g. esbuild `--bundle`, ncc, pkg).
+- A Docker / OCI container image with `node_modules/` copied in.
+- A native installer (electron-builder, Tauri bundle, etc.).
+- Anything that distributes the dep code rather than declaring deps
+  for the recipient to install.
+
+Recommended generators (any one is fine — pick what your release
+workflow already has):
+
+```bash
+# Lightweight dump of every dep + license + repository URL
+npx license-checker --production --json > THIRD_PARTY_LICENSES.json
+
+# Spec-quality, pluggable, recommended for compliance audits
+npx licensee --json --license
+
+# Full SBOM-class tooling — overkill for our size today, but correct
+npx oss-review-toolkit analyze
+```
+
+The npm + GitHub release workflows in this repo do **not** currently
+bundle deps, so this section is forward-looking. If you change that —
+add a CI step that regenerates `THIRD_PARTY_LICENSES.md` and fails the
+build when it drifts from the lockfile.
+
+---
+
 ## Questions?
 
 - **Issues**: [GitHub Issues](https://github.com/Sapience-AI/openclaw-middleware-suite/issues) for bugs/features

@@ -3,7 +3,7 @@ Copyright (c) 2026 Sapience AI Corporation
 
 This product is licensed under the Apache License, Version 2.0 (see LICENSE).
 The full text of the Apache License, Version 2.0 may also be found at:
-    http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 This product includes software derived from third-party open-source projects.
 The applicable copyright notices, license terms, and required attributions are
@@ -17,10 +17,10 @@ The Human-in-the-Loop (HITL) middleware in this product is derived from the
 Reins project by Pegasi.
 
   Project:   Reins (@pegasi-ai/reins)
-  Author:    Kevin Wu and Pegasi contributors
+  Author:    Kevin Wu <kevin@usepegasi.com>
   Source:    https://github.com/pegasi-ai/reins
   License:   Apache License, Version 2.0
-  License text: http://www.apache.org/licenses/LICENSE-2.0
+  License text: https://www.apache.org/licenses/LICENSE-2.0
 
   Copyright (c) Kevin Wu and Pegasi contributors. All rights reserved.
 
@@ -68,7 +68,7 @@ Reins project by Pegasi.
     src/types.ts
 
 ================================================================================
-2. Manifest (Model Routing Middleware)
+2. Manifest (Model Routing — Scoring & Provider Discovery)
 ================================================================================
 
 The Model Routing middleware in this product is derived from the Manifest
@@ -77,13 +77,12 @@ project by MNFST, Inc.
   Project:   Manifest
   Author:    MNFST, Inc. and the Manifest contributors
   Source:    https://github.com/mnfst/manifest
-  Homepage:  https://manifest.build
   License:   MIT License
   License text: https://opensource.org/licenses/MIT
 
   MIT License
 
-  Copyright (c) 2026 MNFST, Inc.
+  Copyright (c) 2026 MNFST, Inc
 
   Permission is hereby granted, free of charge, to any person obtaining a copy
   of this software and associated documentation files (the "Software"), to deal
@@ -131,11 +130,14 @@ project by MNFST, Inc.
     src/middlewares/model-routing/selection/fallback.ts
 
 ================================================================================
-3. ClawRouter (Model Routing Middleware)
+3. ClawRouter (Model Routing — Proxy, Cache & Session)
 ================================================================================
 
 The Model Routing middleware in this product also incorporates code derived
-from the ClawRouter project by BlockRun (BlockRunAI).
+from the ClawRouter project by BlockRun. The GitHub organization is
+"BlockRunAI"; the package author and copyright holder is "BlockRun" (per
+ClawRouter's package.json) and "BlockRunAI" (per ClawRouter's LICENSE) —
+each context below mirrors the upstream artifact verbatim.
 
   Project:   ClawRouter (@blockrun/clawrouter)
   Author:    BlockRun <hello@blockrun.ai>
@@ -194,7 +196,7 @@ detection rules derived from the OpenClaw Shield project by Knostic.
   Author:    Knostic
   Source:    https://github.com/knostic/openclaw-shield
   License:   Apache License, Version 2.0
-  License text: http://www.apache.org/licenses/LICENSE-2.0
+  License text: https://www.apache.org/licenses/LICENSE-2.0
 
   Copyright (c) Knostic. All rights reserved.
 
@@ -229,7 +231,7 @@ OpenGuardrails project.
   License:   Apache License, Version 2.0 (modified — with additional
              conditions covering multi-tenant SaaS use and frontend brand
              attribution; see the upstream LICENSE for details)
-  License text: http://www.apache.org/licenses/LICENSE-2.0
+  License text: https://www.apache.org/licenses/LICENSE-2.0
 
   Copyright (c) OpenGuardrails contributors. All rights reserved.
 
