@@ -120,16 +120,29 @@ export function ModelRoutingPage(_props: { path?: string }) {
   // measure the chart wrapper's top edge against the viewport and assign
   // remaining height (minus chart-wrap padding + title + bottom buffer).
   // Recomputes when stats / cost data lands (rows above can grow) and on
-  // window resize. The 180px floor keeps the chart legible on tiny viewports.
+  // window resize.
+  //
+  // CHART_CHROME shrinks at the same breakpoints the short-viewport CSS
+  // compression in pages.css uses (`@media (max-height: 900/760px)`), so
+  // the JS-computed `available` matches the actual chart-wrap padding +
+  // title height the browser is rendering. Floor is intentionally low
+  // (110px) — short viewports still show a legible chart, and combined
+  // with the CSS compression above the rows shrink enough that floor is
+  // rarely hit on real screen sizes.
   useEffect(() => {
     if (tab !== 'overview' || loading) return;
-    const CHART_CHROME = 80; // chart-wrap padding (40 total) + title row (~32) + bottom margin
     const recompute = () => {
       const el = overviewChartWrapRef.current;
       if (!el) return;
+      const vh = window.innerHeight;
+      // Chart-wrap padding + title row + bottom margin shrinks via CSS at
+      // 900/760 height breakpoints — mirror that here so we don't over-
+      // subtract on short viewports and accidentally force the page to
+      // scroll a single pixel because of rounding.
+      const chartChrome = vh <= 760 ? 56 : vh <= 900 ? 68 : 80;
       const top = el.getBoundingClientRect().top;
-      const available = window.innerHeight - top - CHART_CHROME;
-      const next = Math.max(180, available);
+      const available = vh - top - chartChrome;
+      const next = Math.max(110, available);
       setChartHeight((prev) => (Math.abs(prev - next) < 4 ? prev : next));
     };
     const raf = requestAnimationFrame(recompute);
@@ -214,7 +227,7 @@ export function ModelRoutingPage(_props: { path?: string }) {
       key: 'providerCacheEnabled',
       label: 'Provider Prompt Caching',
       description:
-        'Send provider-specific cache markers (Anthropic cache_control on system prompt + tools) so repeated prefixes aren\u2019t re-processed. Independent of Session Pinning \u2014 same-model requests within the cache window benefit from provider-side prefix reuse on their own.',
+        'Send provider-specific cache markers on system prompt + tools so that repeated prefixes aren\u2019t re-processed.',
       type: 'dropdown',
       options: [
         { value: 'disabled', label: 'Disabled' },
