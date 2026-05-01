@@ -7,7 +7,7 @@
  *     http://www.apache.org/licenses/LICENSE-2.0
  */
 
-import { useState, useEffect } from 'preact/hooks';
+import { useState, useEffect, useRef } from 'preact/hooks';
 import {
   fetchRoutingStats,
   fetchRoutingConfig,
@@ -41,6 +41,16 @@ export function ModelRoutingPage(_props: { path?: string }) {
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<'overview' | 'config' | 'logs'>('overview');
   const [refreshing, setRefreshing] = useState(false);
+  // Recent-decisions table is sized to the viewport so the page never
+  // scrolls vertically. Default `15` is a safe starting size before the
+  // first measurement runs (covers ~720px content area).
+  const auditTableWrapRef = useRef<HTMLDivElement>(null);
+  const [auditPageSize, setAuditPageSize] = useState(15);
+  // Overview-tab chart height — measured against the viewport so the page
+  // never scrolls vertically. Default 220 is the previous fixed value, used
+  // as a fallback before the first measurement runs.
+  const overviewChartWrapRef = useRef<HTMLDivElement>(null);
+  const [chartHeight, setChartHeight] = useState(220);
   // Which profile the config form is currently editing. Independent of any
   // global "default profile" — each profile has its own persisted tier slot
   // in `config.tierOverridesByProfile`, and switching this dropdown swaps
@@ -74,6 +84,61 @@ export function ModelRoutingPage(_props: { path?: string }) {
       setRefreshing(false);
     }
   };
+
+  // Dynamic page-size for the Recent Routing Decisions table on the Logs
+  // tab. Measures the available viewport height below the table's top edge
+  // and divides by the compact-row height so the table fills the screen
+  // without overflowing. Re-runs on tab switch and on window resize.
+  //
+  // Constants are tuned to the compact CSS modifier:
+  //   ROW_HEIGHT 28  ≈ 6+6 padding + ~16 line-height
+  //   CHROME 96      ≈ table header (28) + pagination strip (~52) + bottom buffer (~16)
+  // The 5-row floor keeps the table usable on tiny viewports.
+  useEffect(() => {
+    if (tab !== 'logs') return;
+    const ROW_HEIGHT = 28;
+    const CHROME = 96;
+    const recompute = () => {
+      const wrap = auditTableWrapRef.current;
+      if (!wrap) return;
+      const top = wrap.getBoundingClientRect().top;
+      const available = window.innerHeight - top - CHROME;
+      const rows = Math.max(5, Math.floor(available / ROW_HEIGHT));
+      setAuditPageSize((prev) => (prev === rows ? prev : rows));
+    };
+    // Defer to next frame so layout has settled after the tab switch.
+    const raf = requestAnimationFrame(recompute);
+    window.addEventListener('resize', recompute);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener('resize', recompute);
+    };
+  }, [tab]);
+
+  // Overview chart fills the remaining vertical space below rows 1+2 so the
+  // page never scrolls. Sized analogously to the audit-table effect above:
+  // measure the chart wrapper's top edge against the viewport and assign
+  // remaining height (minus chart-wrap padding + title + bottom buffer).
+  // Recomputes when stats / cost data lands (rows above can grow) and on
+  // window resize. The 180px floor keeps the chart legible on tiny viewports.
+  useEffect(() => {
+    if (tab !== 'overview' || loading) return;
+    const CHART_CHROME = 80; // chart-wrap padding (40 total) + title row (~32) + bottom margin
+    const recompute = () => {
+      const el = overviewChartWrapRef.current;
+      if (!el) return;
+      const top = el.getBoundingClientRect().top;
+      const available = window.innerHeight - top - CHART_CHROME;
+      const next = Math.max(180, available);
+      setChartHeight((prev) => (Math.abs(prev - next) < 4 ? prev : next));
+    };
+    const raf = requestAnimationFrame(recompute);
+    window.addEventListener('resize', recompute);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener('resize', recompute);
+    };
+  }, [tab, loading, stats, costData, providers]);
 
   // Tier configuration for the *currently edited* profile. Each profile has
   // its own slot in `tierOverridesByProfile`; missing slots fall back to
@@ -149,13 +214,12 @@ export function ModelRoutingPage(_props: { path?: string }) {
       key: 'providerCacheEnabled',
       label: 'Provider Prompt Caching',
       description:
-        'Send provider-specific cache markers (Anthropic cache_control on system prompt + tools) so repeated prefixes aren\u2019t re-processed. Requires Session Pinning \u2014 a cached prefix is useless if the next turn switches models.',
+        'Send provider-specific cache markers (Anthropic cache_control on system prompt + tools) so repeated prefixes aren\u2019t re-processed. Independent of Session Pinning \u2014 same-model requests within the cache window benefit from provider-side prefix reuse on their own.',
       type: 'dropdown',
       options: [
         { value: 'disabled', label: 'Disabled' },
-        { value: 'enabled', label: 'Enabled' },
+        { value: 'enabled', label: 'Enabled (default)' },
       ],
-      disabledWhen: (vals) => vals.sessionPinningEnabled !== 'enabled',
     },
   ];
 
@@ -163,8 +227,10 @@ export function ModelRoutingPage(_props: { path?: string }) {
   // Defaults mirror the server-side defaults in DEFAULT_SESSION_STORE_CONFIG
   // and DEFAULT_PROVIDER_CACHE_CONFIG: pinning is off by default (users
   // opt in), caching only counts when pinning is explicitly on.
+  // Toggles are independent: pinning is off by default (opt-in); caching is
+  // on by default (opt-out, matching DEFAULT_PROVIDER_CACHE_CONFIG.enabled).
   const pinningOn = config.sessionPinningEnabled === true;
-  const cacheOn = pinningOn && config.providerCacheEnabled !== false;
+  const cacheOn = config.providerCacheEnabled !== false;
   const formValues: Record<string, unknown> = {
     _fallback: '',
     sessionPinningEnabled: pinningOn ? 'enabled' : 'disabled',
@@ -323,45 +389,129 @@ export function ModelRoutingPage(_props: { path?: string }) {
           {/* Stats — matches RoutingStats shape from proxy/handler.ts:77-81
               (total + per-tier counters; cache/fallback/error counters
               aren\u2019t tracked yet, so we surface the tier breakdown instead). */}
-          <div class="grid-4 mb-16">
-            <StatCard label="Requests Routed" value={formatNumber((stats.total as number) || 0)} />
-            <StatCard
-              label="Simple"
-              value={formatNumber(((stats.byTier as Record<string, number>)?.SIMPLE) || 0)}
-            />
-            <StatCard
-              label="Standard"
-              value={formatNumber(((stats.byTier as Record<string, number>)?.STANDARD) || 0)}
-            />
-            <StatCard
-              label="Complex + Reasoning"
-              value={formatNumber(
-                (((stats.byTier as Record<string, number>)?.COMPLEX) || 0) +
-                  (((stats.byTier as Record<string, number>)?.REASONING) || 0)
-              )}
-            />
+          {/* Row 1: Routing Stats (left) + Cost Sources Today (right).
+              Two-column outer wrap so both blocks fit one viewport line.
+              `align-items: start` prevents the right column's taller
+              cards (with budget bars) from forcing the left column to
+              grow to match. */}
+          <div class="grid-2 mb-16" style={{ alignItems: 'start' }}>
+            <div>
+              <div class="page-section-title">Routing Stats</div>
+              <div class="grid-2">
+                {/* `valueColor` matches the plum tone the cost-source cards
+                    use for their dollar values (#674C67, also `--sai-purple`),
+                    so the two top-row blocks read as a paired numeric set. */}
+                <StatCard
+                  label="Requests Routed"
+                  value={formatNumber((stats.total as number) || 0)}
+                  valueColor="var(--sai-purple)"
+                />
+                <StatCard
+                  label="Simple"
+                  value={formatNumber(((stats.byTier as Record<string, number>)?.SIMPLE) || 0)}
+                  valueColor="var(--sai-purple)"
+                />
+                <StatCard
+                  label="Standard"
+                  value={formatNumber(((stats.byTier as Record<string, number>)?.STANDARD) || 0)}
+                  valueColor="var(--sai-purple)"
+                />
+                <StatCard
+                  label="Complex + Reasoning"
+                  value={formatNumber(
+                    (((stats.byTier as Record<string, number>)?.COMPLEX) || 0) +
+                      (((stats.byTier as Record<string, number>)?.REASONING) || 0)
+                  )}
+                  valueColor="var(--sai-purple)"
+                />
+              </div>
+            </div>
+
+            <div>
+              <div class="page-section-title">Cost Sources Today</div>
+              <div class="grid-2">
+                <SourceCostCard
+                  source="chat"
+                  label="Chat"
+                  description="User-facing turns + manual tier overrides."
+                  spend={todayBySource.chat || 0}
+                  requestCount={todayBySource.chatRequests || 0}
+                  budget={sourceBudgets.chat}
+                />
+                <SourceCostCard
+                  source="icc"
+                  label="ICC Compaction"
+                  description="Context Editing's compaction-extraction calls."
+                  spend={todayBySource.icc || 0}
+                  requestCount={todayBySource.iccRequests || 0}
+                  budget={sourceBudgets.icc}
+                />
+              </div>
+            </div>
           </div>
 
-          {/* Tier cards */}
-          <div class="page-section">
-            <div class="page-section-title">Routing Tiers</div>
-            <div class="tier-grid">
-              {TIERS.map((tier) => {
-                const tierConfig = tiers[tier] as Record<string, unknown> || {};
-                return (
-                  <div class={`tier-card tier-${tier.toLowerCase()}`} key={tier}>
-                    <span class="tier-label">{tier}</span>
-                    <div class="tier-model">
-                      {(tierConfig.primary as string) || 'Not configured'}
-                    </div>
-                    {tierConfig.fallbacks && (
-                      <div class="tier-fallbacks">
-                        Fallbacks: {(tierConfig.fallbacks as string[]).join(' → ') || 'none'}
+          {/* Row 2: Configured Models (left) + Configured Providers (right).
+              Tier cards used `tier-grid` (4-up row) before; we switch to a
+              2x2 inner grid since each row half is constrained to 50%. */}
+          <div class="grid-2 mb-16" style={{ alignItems: 'start' }}>
+            <div>
+              <div class="page-section-title">Configured Models</div>
+              <div class="grid-2">
+                {TIERS.map((tier) => {
+                  const tierConfig = tiers[tier] as Record<string, unknown> || {};
+                  return (
+                    <div class={`tier-card tier-${tier.toLowerCase()}`} key={tier}>
+                      <span class="tier-label">{tier}</span>
+                      <div class="tier-model">
+                        {(tierConfig.primary as string) || 'Not configured'}
                       </div>
-                    )}
-                  </div>
-                );
-              })}
+                      {tierConfig.fallbacks && (
+                        <div class="tier-fallbacks">
+                          Fallbacks: {(tierConfig.fallbacks as string[]).join(' → ') || 'none'}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div>
+              <div class="page-section-title">Configured Providers</div>
+              {providerList.length > 0 ? (
+                <div class="data-table-wrap">
+                  <table class="data-table">
+                    <thead>
+                      <tr>
+                        <th>Provider</th>
+                        <th>Base URL</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {providerList.map(([name, cfg]) => {
+                        const c = cfg as Record<string, unknown>;
+                        return (
+                          <tr key={name}>
+                            <td style={{ fontWeight: 500 }}>{name}</td>
+                            <td class="mono">{(c.baseUrl as string) || '-'}</td>
+                            <td>
+                              <span class="pill pill-green">Connected</span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div
+                  class="data-table-wrap"
+                  style={{ padding: '32px', textAlign: 'center', color: 'var(--sai-text-muted)' }}
+                >
+                  No providers configured
+                </div>
+              )}
             </div>
           </div>
 
@@ -370,70 +520,17 @@ export function ModelRoutingPage(_props: { path?: string }) {
               only one day's data the single bar looked frozen as more
               requests aggregated into the same daily bucket, and uPlot's
               default point markers landed on top of the bars. */}
-          <div class="page-section">
-            <Chart title="Routing Cost (24h)" data={chartData} height={220} />
+          {/* Daily routing cost — line chart, one point per day. The
+              old "Routing Cost (24h)" title implied last-24h scrubbing;
+              actually each dot is the day's accumulated `totalUsd` from
+              CostTracker.saveToDisk's persisted DailyCost[], so the
+              x-axis spans days, not hours. Bar mode was tried but
+              produced visual artifacts with sparse data. The chart's
+              height is computed by the `tab === 'overview'` effect above
+              so it fills the remaining viewport without forcing a scroll. */}
+          <div class="page-section" ref={overviewChartWrapRef} style={{ marginBottom: 0 }}>
+            <Chart title="Daily Routing Cost ($/day)" data={chartData} height={chartHeight} />
           </div>
-
-          {/* Cost source attribution + per-source budgets — surfaces the
-              chat / icc split written by CostTracker.record(). Always
-              rendered (even on fresh enable when both are 0) so the
-              section is discoverable from day one. */}
-          <div class="page-section">
-            <div class="page-section-title">Cost Sources Today</div>
-            <div
-              class="grid-2"
-              style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}
-            >
-              <SourceCostCard
-                source="chat"
-                label="Chat"
-                description="User-facing turns + manual tier overrides."
-                spend={todayBySource.chat || 0}
-                requestCount={todayBySource.chatRequests || 0}
-                budget={sourceBudgets.chat}
-              />
-              <SourceCostCard
-                source="icc"
-                label="ICC Compaction"
-                description="Context Editing's compaction-extraction calls."
-                spend={todayBySource.icc || 0}
-                requestCount={todayBySource.iccRequests || 0}
-                budget={sourceBudgets.icc}
-              />
-            </div>
-          </div>
-
-          {/* Providers */}
-          {providerList.length > 0 && (
-            <div class="page-section">
-              <div class="page-section-title">Configured Providers</div>
-              <div class="data-table-wrap">
-                <table class="data-table">
-                  <thead>
-                    <tr>
-                      <th>Provider</th>
-                      <th>Base URL</th>
-                      <th>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {providerList.map(([name, cfg]) => {
-                      const c = cfg as Record<string, unknown>;
-                      return (
-                        <tr key={name}>
-                          <td style={{ fontWeight: 500 }}>{name}</td>
-                          <td class="mono">{(c.baseUrl as string) || '-'}</td>
-                          <td>
-                            <span class="pill pill-green">Connected</span>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
 
           {/* "Recent Routing Decisions" used to live here on Overview;
               it now lives on the Logs tab, where the wider per-token /
@@ -443,7 +540,12 @@ export function ModelRoutingPage(_props: { path?: string }) {
       )}
 
       {!loading && tab === 'config' && (
-        <div class="page-section">
+        // The page-section wrapper used to add 32px bottom margin which,
+        // combined with the editing-profile field + 7 form fields + actions,
+        // tipped the page into vertical-scroll territory on a 768-900px
+        // viewport. We drop the bottom margin and pass `dense` to ConfigForm
+        // (tighter per-field padding) so all controls fit without scroll.
+        <div class="page-section" style={{ marginBottom: 0 }}>
           {/* Editing-profile selector \u2014 uses the same .config-field row
               layout as the form fields below (info on left, control right-
               aligned) so the visual rhythm of the page stays consistent.
@@ -457,7 +559,7 @@ export function ModelRoutingPage(_props: { path?: string }) {
               normally collapses parent + child can't help here because the
               tier fields live inside a `.config-form` wrapper, breaking
               the adjacent-sibling relationship the selector needs. */}
-          <div class="config-field" style={{ marginBottom: '12px' }}>
+          <div class="config-field" style={{ marginBottom: '12px', padding: '8px 0' }}>
             <div class="config-field-row">
               <div class="config-field-info">
                 <label class="config-field-label">Routing profile</label>
@@ -490,6 +592,7 @@ export function ModelRoutingPage(_props: { path?: string }) {
             fields={routingFields}
             values={formValues}
             readOnly={enabled === false}
+            dense
             onSave={async (val) => {
               // Unmarshal: convert flat _tier_* and _fallback back to tierOverrides
               const fallback = (val._fallback as string) || '';
@@ -507,11 +610,10 @@ export function ModelRoutingPage(_props: { path?: string }) {
                 };
               }
 
-              // Cascade rule: pinning off forces caching off. Server enforces
-              // this in buildConfig; mirroring here keeps the saved value and
-              // the effective value aligned so the next load isn\u2019t confusing.
+              // Pinning + caching are now independent toggles \u2014 neither
+              // coerces the other. Pinning defaults off; caching defaults on.
               const pinning = val.sessionPinningEnabled === 'enabled';
-              const cache = pinning && val.providerCacheEnabled === 'enabled';
+              const cache = val.providerCacheEnabled === 'enabled';
 
               // Send profile-scoped tier write. The server nests these under
               // `tierOverridesByProfile[profile]`, leaving the other profiles'
@@ -536,14 +638,19 @@ export function ModelRoutingPage(_props: { path?: string }) {
         // raw `<LogViewer>` block was redundant — every audit-log line was
         // already surfaced in the table above with richer per-row columns,
         // and the side-by-side layout split attention without adding info.
+        // The wrapper div carries `auditTableWrapRef` so the dynamic
+        // page-size effect can measure where the table starts on screen.
         <div class="page-section">
           <div class="page-section-title">Recent Routing Decisions</div>
-          <DataTable
-            columns={auditColumns}
-            data={auditDescending}
-            emptyText="No routing decisions recorded yet"
-            compact
-          />
+          <div ref={auditTableWrapRef}>
+            <DataTable
+              columns={auditColumns}
+              data={auditDescending}
+              emptyText="No routing decisions recorded yet"
+              pageSize={auditPageSize}
+              compact
+            />
+          </div>
         </div>
       )}
     </div>

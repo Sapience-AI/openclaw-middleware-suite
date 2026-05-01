@@ -170,5 +170,8 @@ export function stripOpenClawEnvelope(text: string): string {
     out.push(line);
   }
 
-  return out.join('\n').replace(/^\n+/, '').replace(/\n+$/, '').trim();
+  // `trim()` already strips leading/trailing `\n` along with other whitespace
+  // — no need for separate `^\n+` / `\n+$` replaces (those are also flagged
+  // by CodeQL js/polynomial-redos for input we don't fully control).
+  return out.join('\n').trim();
 }

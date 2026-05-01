@@ -455,17 +455,16 @@ export class ModelRoutingMiddleware implements Middleware {
       base.defaultProfile = storeData.defaultProfile;
     }
 
-    // Pinning + provider-cache overrides from store.
-    // Cascade: if pinning is off, provider caching is forced off — a cached
-    // prefix is useless when follow-up turns may land on a different model.
+    // Pinning + provider-cache overrides from store. The two toggles used to
+    // cascade (pinning off forced cache off) but are now independent — caching
+    // adds value on its own (provider-side prefix dedup across requests within
+    // the same model) even when the per-session pin isn't set, so we no longer
+    // coerce `providerCache.enabled` based on `session.enabled`.
     if (storeData.sessionPinningEnabled !== undefined) {
       base.session.enabled = storeData.sessionPinningEnabled;
     }
     if (storeData.providerCacheEnabled !== undefined) {
       base.providerCache.enabled = storeData.providerCacheEnabled;
-    }
-    if (!base.session.enabled) {
-      base.providerCache.enabled = false;
     }
 
     // ── Bootstrap-from-store overlays ─────────────────────────────────

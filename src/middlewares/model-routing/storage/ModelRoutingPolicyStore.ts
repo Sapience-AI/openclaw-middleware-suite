@@ -54,7 +54,9 @@ export interface ModelRoutingPolicyData {
   /** When false, skip the pinning check — every turn re-scores. Default true. */
   sessionPinningEnabled?: boolean;
   /** When false, adapters skip provider prompt-cache markers. Default true.
-   *  Coerced to false in buildConfig when sessionPinningEnabled is false. */
+   *  Independent of `sessionPinningEnabled` — caching pays off on its own
+   *  (provider-side prefix dedup across same-model requests) even without
+   *  the per-session pin. */
   providerCacheEnabled?: boolean;
 
   // ── Bootstrap settings (migrated from plugin_config['model-routing']) ──

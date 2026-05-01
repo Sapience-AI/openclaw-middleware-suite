@@ -665,6 +665,22 @@ async function processRequest(
   let responseCacheReadTokens = 0;
   let responseCacheWriteTokens = 0;
   const wasCached = false;
+  // For streaming responses, the synchronous code path reaches the audit-emit
+  // block (below) BEFORE the upstream stream has ended — `responseInputTokens`
+  // etc. would still be 0, so the audit log would record stale zero usage and
+  // the dashboard's "In / Out / Cache R / W / In Cost / Out Cost" columns
+  // would show "-". The cost-tracker stays correct because its `record()`
+  // call lives inside the stream-end callback (real `streamUsage`), but the
+  // audit log doesn't get a second chance — that mismatch is exactly why the
+  // dashboard and CLI disagreed. Flag flips inside both streaming branches
+  // so the synchronous `emitDecision()` at end-of-loop is skipped, and the
+  // stream-end / stream-error callbacks call `emitDecision()` themselves
+  // after copying authoritative tokens into the response* locals.
+  let isStreamingResponse = false;
+  // Guard so emitDecision fires exactly once per request even if both
+  // upstream.on('end') and upstream.on('error') manage to fire (or a buggy
+  // adapter calls onStreamUsage twice).
+  let decisionEmitted = false;
 
   for (let i = 0; i < filteredChain.length; i++) {
     const modelId = filteredChain[i];
@@ -865,6 +881,12 @@ async function processRequest(
           const streamUsageExtractor = new StreamUsageExtractor();
           let sseBuffer = '';
 
+          // Mark this as a streaming response so the post-loop synchronous
+          // path skips its emitDecision() call — we'll emit ourselves from
+          // the upstream end / error handlers below, after the authoritative
+          // streamUsage tokens are folded into the response* locals.
+          isStreamingResponse = true;
+
           upstream.on('data', (chunk: Buffer) => {
             // Normalize \r\n → \n (Google uses \r\n line endings, SSE spec allows both)
             sseBuffer += chunk.toString('utf-8').replace(/\r/g, '');
@@ -902,19 +924,29 @@ async function processRequest(
             res.end();
             proxyLog(reqId, 'STREAM_CONVERT_DONE', `elapsed=${Date.now() - startMs}ms`);
 
-            // Record authoritative cost from stream usage data
+            // Record authoritative cost from stream usage data + fold the
+            // same numbers into the response* locals so the deferred
+            // emitDecision() call below sees real tokens (was the source
+            // of the dashboard's blank In/Out/Cache columns).
             const streamUsage = streamUsageExtractor.getUsage();
-            if (streamUsage && costTracker) {
-              costTracker.record({
-                model: usedModel,
-                inputTokens: streamUsage.input,
-                outputTokens: streamUsage.output,
-                cacheReadTokens: streamUsage.cacheRead,
-                cacheWriteTokens: streamUsage.cacheWrite,
-                source: costSource,
-              });
-              proxyLog(reqId, 'STREAM_COST_RECORDED', { ...streamUsage });
+            if (streamUsage) {
+              responseInputTokens = streamUsage.input;
+              responseOutputTokens = streamUsage.output;
+              responseCacheReadTokens = streamUsage.cacheRead;
+              responseCacheWriteTokens = streamUsage.cacheWrite;
+              if (costTracker) {
+                costTracker.record({
+                  model: usedModel,
+                  inputTokens: streamUsage.input,
+                  outputTokens: streamUsage.output,
+                  cacheReadTokens: streamUsage.cacheRead,
+                  cacheWriteTokens: streamUsage.cacheWrite,
+                  source: costSource,
+                });
+                proxyLog(reqId, 'STREAM_COST_RECORDED', { ...streamUsage });
+              }
             }
+            emitDecision();
           });
 
           upstream.on('error', (err: Error) => {
@@ -925,6 +957,16 @@ async function processRequest(
             safeWrite(res, `data: ${errPayload}\n\n`);
             safeWrite(res, 'data: [DONE]\n\n');
             res.end();
+            // Fold whatever partial usage we extracted before the error so
+            // the audit log carries best-effort numbers instead of zeros.
+            const streamUsage = streamUsageExtractor.getUsage();
+            if (streamUsage) {
+              responseInputTokens = streamUsage.input;
+              responseOutputTokens = streamUsage.output;
+              responseCacheReadTokens = streamUsage.cacheRead;
+              responseCacheWriteTokens = streamUsage.cacheWrite;
+            }
+            emitDecision();
           });
 
           res.on('close', () => {
@@ -1018,6 +1060,13 @@ async function processRequest(
           socketDestroyed: res.destroyed,
         });
 
+        // For streaming responses through writeResponse, defer the audit
+        // emit to the onStreamUsage callback (fires when upstream ends or
+        // errors out). The synchronous emitDecision() at end-of-loop is
+        // skipped via `isStreamingResponse`.
+        if (result.isStream) {
+          isStreamingResponse = true;
+        }
         writeResponse(
           res,
           result,
@@ -1027,17 +1076,24 @@ async function processRequest(
           profile,
           result.isStream
             ? (streamUsage) => {
-                if (streamUsage && costTracker) {
-                  costTracker.record({
-                    model: usedModel,
-                    inputTokens: streamUsage.input,
-                    outputTokens: streamUsage.output,
-                    cacheReadTokens: streamUsage.cacheRead,
-                    cacheWriteTokens: streamUsage.cacheWrite,
-                    source: costSource,
-                  });
-                  proxyLog(reqId, 'STREAM_COST_RECORDED', { ...streamUsage });
+                if (streamUsage) {
+                  responseInputTokens = streamUsage.input;
+                  responseOutputTokens = streamUsage.output;
+                  responseCacheReadTokens = streamUsage.cacheRead;
+                  responseCacheWriteTokens = streamUsage.cacheWrite;
+                  if (costTracker) {
+                    costTracker.record({
+                      model: usedModel,
+                      inputTokens: streamUsage.input,
+                      outputTokens: streamUsage.output,
+                      cacheReadTokens: streamUsage.cacheRead,
+                      cacheWriteTokens: streamUsage.cacheWrite,
+                      source: costSource,
+                    });
+                    proxyLog(reqId, 'STREAM_COST_RECORDED', { ...streamUsage });
+                  }
                 }
+                emitDecision();
               }
             : undefined
         );
@@ -1155,44 +1211,10 @@ async function processRequest(
     sessionStore.pinModel(sessionId, usedModel, scoringResult.tier);
   }
 
-  // ── Cost tracking ───────────────────────────────────────────────────
-  // Non-streaming: tokens are authoritative (from provider response body via
-  // extractUsage) — record to CostTracker now.
-  // Streaming: authoritative tokens arrive asynchronously via StreamUsageExtractor
-  // in the stream end handler — already recorded there (see onStreamUsage callback
-  // in writeResponse and the converted-streaming end handler above).
-  // The estimateCost() call is read-only and provides a value for the audit log.
-  if (
-    costTracker &&
-    responseStatus < 400 &&
-    (responseInputTokens > 0 || responseOutputTokens > 0)
-  ) {
-    costTracker.record({
-      model: usedModel,
-      inputTokens: responseInputTokens,
-      outputTokens: responseOutputTokens,
-      cacheReadTokens: responseCacheReadTokens,
-      cacheWriteTokens: responseCacheWriteTokens,
-      source: costSource,
-    });
-  }
-  // Per-request cost split — input/output/total. The audit log carries
-  // this so the dashboard can render the Input / Output / Total / $/1M-in /
-  // $/1M-out columns directly from the audit entry without re-querying
-  // pricing or token data per render.
-  const costSplit = costTracker
-    ? costTracker.splitCost(
-        usedModel,
-        responseInputTokens || estimatedTokens,
-        responseOutputTokens,
-        responseCacheReadTokens,
-        responseCacheWriteTokens
-      )
-    : { inputCostUsd: 0, outputCostUsd: 0, totalCostUsd: 0 };
-  const costEstimateUsd = costSplit.totalCostUsd;
-
   // Mark request as completed (prevents client disconnect handler from
-  // redundantly cleaning up dedup entries).
+  // redundantly cleaning up dedup entries). Always synchronous — fires as
+  // soon as the upstream connection settled, regardless of whether a
+  // streaming body is still flowing.
   clearTimeout(globalTimeoutId);
   requestCompleted = true;
 
@@ -1205,61 +1227,115 @@ async function processRequest(
     elapsed: Date.now() - startMs,
   });
 
-  // ── Update stats ────────────────────────────────────────────────────────
-  stats.total++;
-  stats.byTier[scoringResult.tier]++;
+  // ── emitDecision: builds the audit decision + plugin afterForward event
+  // from the *current* values of `responseInputTokens` / `responseOutputTokens`
+  // / `responseCache{Read,Write}Tokens`. Called synchronously for non-streaming
+  // and from the stream-end / stream-error callbacks for streaming, so the
+  // audit log captures real authoritative tokens (matching what cost-tracker
+  // sees) instead of the pre-stream zeros that produced "-" cells in the
+  // dashboard's Recent Routing Decisions table.
+  //
+  // Also updates `stats.total` / `stats.byTier` here so the dashboard's
+  // Routing Stats counters fire on actual completion rather than on the
+  // synchronous return from `writeResponse(...)` (which happens before the
+  // upstream stream has started flowing for streaming responses).
+  //
+  // The non-streaming `costTracker.record()` call also lives here — for
+  // streaming, the record() call still lives in the stream-end callbacks
+  // below (which run BEFORE this function), so we guard against double-record
+  // by skipping the call when `isStreamingResponse` is set.
+  const emitDecision = (): void => {
+    if (decisionEmitted) return;
+    decisionEmitted = true;
 
-  // ── Build routing decision for audit log ────────────────────────────────
-  const latencyMs = Date.now() - startMs;
-  const decision: RoutingDecision = {
-    tier: scoringResult.tier,
-    model: usedModel,
-    confidence: scoringResult.confidence,
-    score: scoringResult.score,
-    reason: scoringResult.reason,
-    dimensions: scoringResult.dimensions,
-    latencyMs,
-    fallbackFrom,
-    fallbackAttempts: attempts.length > 0 ? attempts : undefined,
-    costEstimateUsd,
-    inputTokens: responseInputTokens || undefined,
-    outputTokens: responseOutputTokens || undefined,
-    cacheReadTokens: responseCacheReadTokens || undefined,
-    cacheWriteTokens: responseCacheWriteTokens || undefined,
-    inputCostUsd: costSplit.inputCostUsd || undefined,
-    outputCostUsd: costSplit.outputCostUsd || undefined,
-  };
-
-  if (onRouteCallback) {
-    try {
-      onRouteCallback(decision);
-    } catch {
-      /* ignore */
+    if (
+      costTracker &&
+      !isStreamingResponse &&
+      responseStatus < 400 &&
+      (responseInputTokens > 0 || responseOutputTokens > 0)
+    ) {
+      costTracker.record({
+        model: usedModel,
+        inputTokens: responseInputTokens,
+        outputTokens: responseOutputTokens,
+        cacheReadTokens: responseCacheReadTokens,
+        cacheWriteTokens: responseCacheWriteTokens,
+        source: costSource,
+      });
     }
-  }
 
-  // ── Plugin: onAfterForward (fire-and-forget) ──────────────────────────
-  if (pluginRegistry?.hasPlugins) {
-    const afterEvent: AfterForwardEvent = {
+    const costSplit = costTracker
+      ? costTracker.splitCost(
+          usedModel,
+          responseInputTokens || estimatedTokens,
+          responseOutputTokens,
+          responseCacheReadTokens,
+          responseCacheWriteTokens
+        )
+      : { inputCostUsd: 0, outputCostUsd: 0, totalCostUsd: 0 };
+    const costEstimateUsd = costSplit.totalCostUsd;
+
+    stats.total++;
+    stats.byTier[scoringResult.tier]++;
+
+    const latencyMs = Date.now() - startMs;
+    const decision: RoutingDecision = {
       tier: scoringResult.tier,
       model: usedModel,
-      provider: resolveProvider(
-        usedModel,
-        config.providers,
-        discoveredModelsCache,
-        config.targetBaseUrl,
-        config.targetApiKey
-      ).providerName,
-      status: responseStatus,
+      confidence: scoringResult.confidence,
+      score: scoringResult.score,
+      reason: scoringResult.reason,
+      dimensions: scoringResult.dimensions,
       latencyMs,
-      inputTokens: responseInputTokens || estimatedTokens,
-      outputTokens: responseOutputTokens,
+      fallbackFrom,
+      fallbackAttempts: attempts.length > 0 ? attempts : undefined,
       costEstimateUsd,
-      cached: wasCached,
-      fallback: !!fallbackFrom,
-      sessionId,
+      inputTokens: responseInputTokens || undefined,
+      outputTokens: responseOutputTokens || undefined,
+      cacheReadTokens: responseCacheReadTokens || undefined,
+      cacheWriteTokens: responseCacheWriteTokens || undefined,
+      inputCostUsd: costSplit.inputCostUsd || undefined,
+      outputCostUsd: costSplit.outputCostUsd || undefined,
     };
-    pluginRegistry.fireAfterForward(afterEvent);
+
+    if (onRouteCallback) {
+      try {
+        onRouteCallback(decision);
+      } catch {
+        /* ignore */
+      }
+    }
+
+    if (pluginRegistry?.hasPlugins) {
+      const afterEvent: AfterForwardEvent = {
+        tier: scoringResult.tier,
+        model: usedModel,
+        provider: resolveProvider(
+          usedModel,
+          config.providers,
+          discoveredModelsCache,
+          config.targetBaseUrl,
+          config.targetApiKey
+        ).providerName,
+        status: responseStatus,
+        latencyMs,
+        inputTokens: responseInputTokens || estimatedTokens,
+        outputTokens: responseOutputTokens,
+        costEstimateUsd,
+        cached: wasCached,
+        fallback: !!fallbackFrom,
+        sessionId,
+      };
+      pluginRegistry.fireAfterForward(afterEvent);
+    }
+  };
+
+  // For streaming, the stream-end / stream-error callbacks will call
+  // emitDecision() themselves once `streamUsage` has been folded into the
+  // response* locals. For non-streaming (and for error responses written
+  // synchronously by writeErrorResponse), emit now.
+  if (!isStreamingResponse) {
+    emitDecision();
   }
 }
 

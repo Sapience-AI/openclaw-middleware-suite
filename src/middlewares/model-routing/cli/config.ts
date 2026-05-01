@@ -13,10 +13,7 @@
 
 import chalk from 'chalk';
 import { ModelRoutingDiscovery } from '../storage/ModelRoutingDiscovery.js';
-import {
-  ModelRoutingPolicyStore,
-  ModelRoutingPolicyData,
-} from '../storage/ModelRoutingPolicyStore.js';
+import { ModelRoutingPolicyStore } from '../storage/ModelRoutingPolicyStore.js';
 import { DEFAULT_SCORING_CONFIG } from '../config.js';
 import { VALID_PROFILES, PROFILE_DESCRIPTIONS } from '../selection/profiles.js';
 
@@ -42,29 +39,12 @@ export async function routerConfigCommand(opts: {
   }
   if (opts.enablePinning || opts.disablePinning) {
     const enabled = !!opts.enablePinning;
-    const partial: Partial<ModelRoutingPolicyData> = { sessionPinningEnabled: enabled };
-    // Cascade: pinning off forces provider caching off. Persist the coerced
-    // value so sapience-ai-suite.json matches effective behavior.
-    if (!enabled) partial.providerCacheEnabled = false;
-    await ModelRoutingPolicyStore.update(partial);
-    console.log(
-      chalk.green(
-        `Session pinning ${enabled ? 'enabled' : 'disabled'}` +
-          (!enabled ? ' (provider prompt caching also disabled).' : '.')
-      )
-    );
+    await ModelRoutingPolicyStore.update({ sessionPinningEnabled: enabled });
+    console.log(chalk.green(`Session pinning ${enabled ? 'enabled' : 'disabled'}.`));
     return;
   }
   if (opts.enableCache || opts.disableCache) {
     const enabled = !!opts.enableCache;
-    // Pinning must be explicitly enabled for cache-on to stick — default is off.
-    const pinningOn = store.getSessionPinningEnabled() === true;
-    if (enabled && !pinningOn) {
-      console.error(
-        chalk.red('Session pinning is currently off. Enable it first with --enable-pinning.')
-      );
-      process.exit(1);
-    }
     await ModelRoutingPolicyStore.update({ providerCacheEnabled: enabled });
     console.log(chalk.green(`Provider prompt caching ${enabled ? 'enabled' : 'disabled'}.`));
     return;
@@ -199,16 +179,13 @@ export async function routerConfigCommand(opts: {
   }
   console.log('');
 
-  // Session pinning + provider prompt caching.
-  // Defaults: pinning off, cache follows pinning (both opt-in).
+  // Session pinning + provider prompt caching — independently toggleable.
+  // Defaults: pinning off (opt-in), cache on (default-on; opt-out).
   const pinningOn = data.sessionPinningEnabled === true;
-  const cacheOn = pinningOn && data.providerCacheEnabled !== false;
+  const cacheOn = data.providerCacheEnabled !== false;
   console.log(chalk.bold('Session Pinning & Provider Caching:'));
   console.log(`  Session pinning:          ${pinningOn ? chalk.green('on') : chalk.yellow('off')}`);
-  console.log(
-    `  Provider prompt caching:  ${cacheOn ? chalk.green('on') : chalk.yellow('off')}` +
-      (!pinningOn ? chalk.dim('  (forced off — pinning disabled)') : '')
-  );
+  console.log(`  Provider prompt caching:  ${cacheOn ? chalk.green('on') : chalk.yellow('off')}`);
   console.log('');
 
   console.log(chalk.dim(`Store: ${ModelRoutingPolicyStore.getPath()}`));

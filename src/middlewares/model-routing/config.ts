@@ -71,8 +71,9 @@ export interface ModelRoutingConfig {
   /** Cost tracking alerts (Phase 5) */
   costAlerts: CostAlertConfig;
   /** Provider-level prompt caching (Anthropic cache_control markers today).
-   *  Gated on session.enabled — caching without pinning wastes the markers
-   *  because follow-ups may land on a different model with no cached prefix. */
+   *  Independent of session pinning — even without per-session model pinning,
+   *  same-model requests within the cache window benefit from provider-side
+   *  prefix reuse. */
   providerCache: ProviderCacheConfig;
 }
 

@@ -650,6 +650,20 @@
   user-select: none;
 }
 
+/* Dense modifier — tightens per-field vertical padding so a tall form
+ * (e.g. Model Routing's profile + 4 tier dropdowns + fallback + pinning +
+ * caching + actions) fits a typical viewport without forcing the page
+ * to scroll. Save/reset action row keeps its existing top padding so
+ * the buttons remain visually separated from the last field. */
+.config-form--dense .config-field {
+  padding: 8px 0;
+}
+.config-form--dense .config-field--nested {
+  padding-left: 28px;
+  padding-top: 6px;
+  padding-bottom: 8px;
+}
+
 .config-form-banner {
   padding: 10px 14px;
   margin-bottom: 16px;
