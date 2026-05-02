@@ -10,6 +10,8 @@ Thank you for your interest in contributing! This guide covers everything you ne
 - [Branch Naming Convention](#branch-naming-convention)
 - [Code Style Guidelines](#code-style-guidelines)
 - [Project Structure](#project-structure)
+- [Contributor sign-off (DCO)](#contributor-sign-off-dco)
+- [Third-party licenses](#third-party-licenses)
 
 ---
 
@@ -317,6 +319,98 @@ When contributing security-related code:
 4. **Ask for review** if uncertain about security implications
 
 **Report vulnerabilities privately**: email discovery.shariq.ali@sapienceai.co
+
+---
+
+## Contributor sign-off (DCO)
+
+Every commit in every pull request to this repo must include a
+`Signed-off-by:` line. We use the **Developer Certificate of Origin
+v1.1** (DCO) as the inbound contribution agreement — a lightweight
+attestation that you have the right to contribute the patch under
+this project's license (Apache-2.0). No CLA, no lawyers, no signup —
+just a one-line trailer on each commit.
+
+CI rejects any PR whose commits are missing the trailer; see
+[`.github/workflows/dco.yml`](./.github/workflows/dco.yml).
+
+### How to sign off
+
+Pass `-s` (or `--signoff`) when committing:
+
+```bash
+git commit -s -m "fix: typo in README"
+```
+
+This appends a trailer like:
+
+```
+Signed-off-by: Random J Developer <random@developer.example.org>
+```
+
+Use the same name + email you've configured in `git config user.name`
+and `git config user.email` (most editors / IDEs already set these).
+
+If you forgot on the most recent commit, amend it:
+
+```bash
+git commit --amend --signoff
+git push --force-with-lease
+```
+
+If multiple commits in the PR are missing sign-offs, rebase and
+sign each:
+
+```bash
+git rebase HEAD~N --signoff   # N = number of commits to rewrite
+git push --force-with-lease
+```
+
+### What you're attesting to
+
+The DCO v1.1 text — by adding the `Signed-off-by:` trailer you are
+attesting that:
+
+> Developer Certificate of Origin
+> Version 1.1
+>
+> Copyright (C) 2004, 2006 The Linux Foundation and its contributors.
+>
+> Everyone is permitted to copy and distribute verbatim copies of this
+> license document, but changing it is not allowed.
+>
+>
+> Developer's Certificate of Origin 1.1
+>
+> By making a contribution to this project, I certify that:
+>
+> (a) The contribution was created in whole or in part by me and I
+>     have the right to submit it under the open source license
+>     indicated in the file; or
+>
+> (b) The contribution is based upon previous work that, to the best
+>     of my knowledge, is covered under an appropriate open source
+>     license and I have the right under that license to submit that
+>     work with modifications, whether created in whole or in part
+>     by me, under the same open source license (unless I am
+>     permitted to submit under a different license), as indicated
+>     in the file; or
+>
+> (c) The contribution was provided directly to me by some other
+>     person who certified (a), (b) or (c) and I have not modified
+>     it.
+>
+> (d) I understand and agree that this project and the contribution
+>     are public and that a record of the contribution (including all
+>     personal information I submit with it, including my sign-off) is
+>     maintained indefinitely and may be redistributed consistent with
+>     this project or the open source license(s) involved.
+
+Source: <https://developercertificate.org>.
+
+We don't require a CLA or contributor agreement beyond this. If you
+contribute on behalf of a company that requires explicit copyright
+assignment, please open a discussion before sending the PR.
 
 ---
 
