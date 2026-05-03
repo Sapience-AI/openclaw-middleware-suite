@@ -10,41 +10,39 @@
 /**
  * Context Editing Middleware — Main Entry Point
  *
- * Single-hook compaction design (openclaw 2026.4.11+):
- *  - `beforeModelResolve` (awaited, fires BEFORE the gateway's
- *    SessionManager opens the session JSONL) does everything: walks the
- *    JSONL via its own SessionManager.open(), evaluates adaptive
- *    triggers, and runs compaction inline when the threshold is met.
- *    Because SM_A hasn't opened yet, our SM_B can append the compaction
- *    entry without forking the DAG. When the hook returns, the gateway
- *    opens SM_A fresh, picks up the compaction entry, and the current
- *    turn's LLM call sees compacted history.
- *  - `beforePromptBuild` syncs live session stats (no trigger eval or
- *    compaction).
+ * Single-hook design (openclaw 2026.4.11+): every observable behavior
+ * lives in `beforeModelResolve`. The hook fires once per turn, BEFORE
+ * the gateway's SessionManager opens the session JSONL. CE walks the
+ * JSONL via its own SessionManager.open(), evaluates adaptive triggers,
+ * sums each persisted assistant message's `input + output` usage into
+ * the per-session counter (the pull-based replacement for the now-
+ * unregistered `llm_output` push), and runs compaction inline when the
+ * threshold is met — appending the compaction entry via
+ * `appendCompaction()`. SM_A hasn't opened yet, so SM_B can append
+ * without forking the DAG. When the hook returns, the gateway opens
+ * SM_A fresh, picks up the compaction entry, and the current turn's
+ * LLM call sees compacted history.
  *
- * The previous design relied on `agent_end` (push trigger eval),
- * `before_agent_start` (consume schedule + run compaction), and
- * `llm_output` (push per-turn assistant token tracking). All three are
- * either deprecated (`before_agent_start`) or conversation-gated on
- * 2026.4.27+ (`agent_end`, `llm_output`) and so are no longer registered
- * in `plugin/index.ts`. Per-turn assistant token tracking is now PULLED
- * from the JSONL on every `beforeModelResolve` call (same provider-
- * reported `usage` data, just read instead of pushed) — UI-aligned
- * `tokensSaved` precision is preserved.
+ * Three previously-implemented lifecycle methods were removed:
+ *   - `beforeAgentStart` (deprecated upstream; replaced by
+ *     `beforeModelResolve`)
+ *   - `agentEnd` and `llm_output` (conversation-gated for non-bundled
+ *     plugins on 2026.4.27+ — silently dropped at registration)
+ *   - `beforePromptBuild`, `beforeToolCall`, and `afterToolCall` (no
+ *     longer registered as OpenClaw hooks; the latter two were also
+ *     unreachable in practice, and `afterToolCall`'s
+ *     `recordToolOutput` accumulator double-counted with the
+ *     JSONL-walk's text-based estimate).
+ *
+ * The class still implements the `Middleware` interface — those slots
+ * are all optional, and `MiddlewareRegistry` skips middlewares that
+ * don't expose tool-call hooks.
  */
 
 import { createRequire } from 'module';
 import { pathToFileURL } from 'url';
 import { createHash } from 'crypto';
-import {
-  Middleware,
-  MiddlewareContext,
-  MiddlewareResult,
-  ModelResolveContext,
-  ModelResolveResult,
-  PromptBuildContext,
-  PromptBuildResult,
-} from '../../types.js';
+import { Middleware, ModelResolveContext, ModelResolveResult } from '../../types.js';
 import { logger } from '../../shared/Logger.js';
 import { getOpenclawHome, getOpenclawDir } from '../../shared/env.js';
 import { isSessionStartupMessage } from '../../shared/session-detection.js';
@@ -234,24 +232,6 @@ export class ContextEditingMiddleware implements Middleware {
     });
   }
 
-  // --- Standard Middleware Pipeline Hooks ---
-
-  async beforeToolCall(_context: MiddlewareContext): Promise<MiddlewareResult> {
-    // Pass-through — trigger evaluation is done in agentEnd.
-    return { block: false };
-  }
-
-  async afterToolCall(context: MiddlewareContext, result: unknown): Promise<void> {
-    try {
-      if (!context.sessionKey) return;
-      // Estimate tokens from tool result to refine session buffer
-      const estimatedTokens = this.estimateTokens(result);
-      this.triggerEvaluator.recordToolOutput(context.sessionKey, estimatedTokens);
-    } catch (err) {
-      logger.warn('[ContextEditingMiddleware] afterToolCall error (suppressed)', { error: err });
-    }
-  }
-
   getStatus(): { enabled: boolean; stats?: Record<string, unknown> } {
     // The plugin-level on/off check lives upstream in plugin/index.ts via
     // ContextEditingPolicyStore.isPluginEnabled(). Once this middleware is
@@ -275,93 +255,6 @@ export class ContextEditingMiddleware implements Middleware {
   }
 
   // --- Plugin-Level Hook Handlers (registered in plugin/index.ts) ---
-
-  /**
-   * Called by the before_prompt_build lifecycle hook on EVERY agent turn.
-   * Responsible for:
-   *  1) Syncing session stats (message count, token estimate)
-   *  2) ICC prompt injection — returns { appendSystemContext } to inject entity
-   *     locks and conflict resolution directives into the system prompt.
-   *
-   * NOTE: Trigger evaluation has moved to onAgentEnd, which sees ALL messages
-   * (including the current turn's response).  Compaction execution has moved
-   * to onBeforeAgentStart, which runs before the SessionManager opens the
-   * JSONL (no DAG fork risk).
-   *
-   * Hook signature: handler(event: PluginHookBeforePromptBuildEvent, ctx: PluginHookAgentContext)
-   *   event (arg0) = { prompt, messages[] }
-   *   ctx   (arg1) = { runId?, agentId?, sessionKey?, sessionId?, workspaceDir?, ... }
-   *
-   * Returns: { appendSystemContext?: string } — merged into the system prompt.
-   */
-  async beforePromptBuild(context: PromptBuildContext): Promise<PromptBuildResult | void> {
-    try {
-      const sessionKey = context.sessionKey;
-
-      diag('beforePromptBuild ENTERED', {
-        sessionKey: sessionKey || '(missing)',
-        rawMessageCount: context.messages?.length,
-        hasPrompt: !!context.prompt,
-      });
-
-      if (!sessionKey) return;
-
-      // --- Recursion Guard (Issue 3) ---
-      // If this session is currently being compacted by our own
-      // requestCompaction(), skip trigger evaluation entirely so we
-      // don't re-trigger a compaction loop.
-      if (this.compactingSessionIds.has(sessionKey)) {
-        diag('beforePromptBuild: skipping — session is mid-compaction', { sessionKey });
-        return;
-      }
-
-      // --- Adaptive Trigger Evaluation ---
-      if (context.messages) {
-        // Filter FIRST, then count — raw messages[] includes the startup
-        // sequence and tool_result messages (role='user' in Anthropic API
-        // format) which inflate the count and fire the trigger too early.
-        const conversationMessagesForCount = this.filterMessagesForICC(context.messages);
-        let userMessageCount = 0;
-        for (const msg of conversationMessagesForCount) {
-          if ((msg as Record<string, unknown>).role === 'user') userMessageCount++;
-        }
-
-        // Mark the session as having real user messages so that llmOutput
-        // starts accumulating tokens. This ensures we skip the greeting and
-        // tool-call assistant responses that precede real conversation.
-        if (userMessageCount >= 1) {
-          this.sessionsWithRealUserMessages.add(sessionKey);
-        }
-
-        // Estimate tokens from clean conversation text only — not raw JSON.
-        // JSON.stringify(context.messages) would include IDs, timestamps,
-        // thinking blocks, and JSON punctuation, artificially inflating the count.
-        const estimatedTokens = this.estimateTokens(
-          conversationMessagesForCount
-            .map((m) => this.extractCleanedTextForICC(m as Record<string, unknown>))
-            .join(' ')
-        );
-        this.triggerEvaluator.syncSessionStats(sessionKey, userMessageCount, estimatedTokens);
-
-        const buffer = this.triggerEvaluator.getSessionBuffer(sessionKey);
-        const stats = { messageCount: buffer.messageCount, tokenCount: buffer.estimatedTokens };
-        diag('beforePromptBuild: session stats', {
-          sessionKey,
-          userMessageCount: stats.messageCount,
-          userMessageDelta: stats.messageCount - buffer.baselineMessageCount,
-          tokenCount: stats.tokenCount,
-          tokenDelta: stats.tokenCount - buffer.baselineTokens,
-        });
-
-        // Trigger evaluation has moved to agentEnd — it sees ALL
-        // messages (including the current turn's response) and schedules
-        // compaction for the next turn's beforeAgentStart, which runs
-        // BEFORE the SessionManager opens the JSONL (no DAG fork risk).
-      }
-    } catch (err) {
-      logger.error('[ContextEditingMiddleware] beforePromptBuild error', { error: err });
-    }
-  }
 
   /**
    * Load-bearing hook on openclaw 2026.4.27+ where `agent_end` and

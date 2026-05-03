@@ -224,32 +224,36 @@ Context Editing solves both problems: it compresses old messages using LLM-power
 ##### How It Works
 
 ```
-Turn Completes
+Turn Begins
   │
-  └─ agent_end hook ──→ Evaluate triggers
-                           │
-                           ├─ Token count > threshold?
-                           ├─ Message count > threshold?
-                           └─ Adaptive rules?
-                           │
-                           ▼
-                        Schedule compaction (if triggered)
-
-Next Turn Begins
-  │
-  └─ before_agent_start hook ──→ Compact
-                                   │
-                                   ├─ Run ICC extraction
-                                   │    ├─ Priority Preservation
-                                   │    ├─ Conflict Resolution
-                                   │    └─ Entity Locks
-                                   │
-                                   ▼
-                                Replace old messages with dense summary
-                                (before SessionManager opens the JSONL)
+  └─ before_model_resolve hook ──→ (fires BEFORE OpenClaw's SessionManager opens the JSONL)
+                                     │
+                                     ├─ Walk session JSONL
+                                     │    ├─ Count user messages
+                                     │    └─ Sum assistant token usage
+                                     │
+                                     ├─ Evaluate triggers
+                                     │    ├─ Token count > threshold?
+                                     │    ├─ Message count > threshold?
+                                     │    └─ Adaptive rules?
+                                     │
+                                     ▼  (if triggered)
+                                  Run ICC extraction
+                                     ├─ Priority Preservation
+                                     ├─ Conflict Resolution
+                                     └─ Entity Locks
+                                     │
+                                     ▼
+                                  Append compaction entry to JSONL
+                                     │
+                                     ▼
+  └─ OpenClaw opens SessionManager ──→ Reads compacted JSONL
+                                         │
+                                         ▼
+                                      LLM call sees compacted history
 ```
 
-The two-phase design ensures compaction happens *before* SessionManager opens the JSONL file, preventing race conditions.
+The single-hook design does everything in one place: detect, extract, and write — all *before* OpenClaw's own SessionManager opens the JSONL, so there's no concurrent-SM-on-same-file race. The same turn's LLM call sees the compacted history (no one-turn lag). Per-turn assistant token usage is read directly from the persisted JSONL entries, so the `tokensSaved` metric stays provider-precise without needing a separate push hook.
 
 ##### ICC Pipeline (Intelligent Context Compression)
 
@@ -1044,12 +1048,7 @@ import {
 
 | Method | OpenClaw event | What it does |
 |---|---|---|
-| `beforeToolCall(ctx)` | `before_tool_call` | Pass-through (no-op for tool calls; trigger evaluation happens at agent_end) |
-| `afterToolCall(ctx, result)` | `after_tool_call` | Refines session buffer with tool-output token estimate |
-| `beforeAgentStart(ctx)` | `before_agent_start` | Executes scheduled compaction (pre-SessionManager — no DAG fork) |
-| `beforePromptBuild(ctx)` | `before_prompt_build` | Syncs session stats; tracks main-agent runId for `llmOutput` |
-| `agentEnd(ctx)` | `agent_end` | Adaptive trigger evaluation; schedules compaction for next turn |
-| `llmOutput(ctx)` | `llm_output` | Records assistant token usage for savings calculation |
+| `beforeModelResolve(ctx)` | `before_model_resolve` | **The single load-bearing hook.** Fires before OpenClaw's SessionManager opens the JSONL. Walks the JSONL, sums per-turn assistant token usage into the per-session counter, evaluates adaptive triggers, and runs ICC + `appendCompaction` inline when the threshold is met. The current turn's LLM call sees compacted history. |
 
 Disk overlay at `sapience-ai-suite.json[context_editing][configOverrides]`. Plugin gating: `ContextEditingPolicyStore.isPluginEnabled()`. The `config` arg has one CE-specific purpose: pass OpenClaw's `pluginApi` here when running inside the plugin so ICC's LLM extraction can dispatch through it. **CE deep-merges the three nested sub-trees** `icc` / `pruning` / `compaction` (in `initialize`, `updateConfig`, and `reloadConfig`) so a partial like `{ icc: { messagesKeptBeforeCompaction: 5 } }` keeps `icc.customPrompt`, `icc.customSchema`, etc. intact — top-level fields shallow-merge as elsewhere in the suite.
 
