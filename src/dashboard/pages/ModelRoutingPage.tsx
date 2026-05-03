@@ -537,6 +537,7 @@ export function ModelRoutingPage(_props: { path?: string }) {
                   spend={todayBySource.icc || 0}
                   requestCount={todayBySource.iccRequests || 0}
                   budget={sourceBudgets.icc}
+                  tooltip="Counts only compaction calls that pass through the Model Routing proxy (e.g. when agents.defaults.compaction.model is unset and inherits a sai-router/* model, or is set to one). Compaction calls that go directly to a non-router provider bypass MR and won't appear here."
                 />
               </div>
             </div>
@@ -868,8 +869,9 @@ function SourceCostCard(props: {
   spend: number;
   requestCount: number;
   budget?: { dailyWarn?: number; dailyCritical?: number };
+  tooltip?: string;
 }) {
-  const { label, description, spend, requestCount, budget } = props;
+  const { label, description, spend, requestCount, budget, tooltip } = props;
   const warn = budget?.dailyWarn;
   const critical = budget?.dailyCritical;
 
@@ -889,7 +891,23 @@ function SourceCostCard(props: {
   return (
     <div class="stat-card" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
       <div class="stat-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-        <span>{label}</span>
+        <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: '4px' }}>
+          {label}
+          {tooltip ? (
+            <span
+              title={tooltip}
+              aria-label={tooltip}
+              style={{
+                cursor: 'help',
+                color: 'var(--sai-text-muted)',
+                fontSize: '11px',
+                borderBottom: '1px dotted var(--sai-text-muted)',
+              }}
+            >
+              ⓘ
+            </span>
+          ) : null}
+        </span>
         <span style={{ fontSize: '11px', color: 'var(--sai-text-muted)' }}>
           {requestCount} {requestCount === 1 ? 'request' : 'requests'}
         </span>

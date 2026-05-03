@@ -495,10 +495,13 @@ export async function handleApiRoute(
         { dotPath: 'agents.defaults.contextPruning', value: pruningValue },
         { dotPath: 'agents.defaults.compaction.model', value: modelValue },
       ]);
-      await flushToOpenClaw();
+      const flushResult = await flushToOpenClaw();
 
       await ContextEditingPolicyStore.save(body);
-      json(res, 200, { ok: true });
+      // `restarted` lets the dashboard drive `notifyGatewayRestart()` only
+      // when the flush actually requested a restart — avoids flashing the
+      // overlay when nothing changed or when only hot-reloadable paths moved.
+      json(res, 200, { ok: true, restarted: flushResult.restarted });
       return;
     }
     if (urlPath === '/api/context-editing/stats' && method === 'GET') {
@@ -758,8 +761,8 @@ export async function handleApiRoute(
     }
     if (urlPath === '/api/openclaw/sync' && method === 'POST') {
       const { flushToOpenClaw } = await lazyImport('./openclaw-sync.js');
-      const count = await flushToOpenClaw();
-      json(res, 200, { ok: true, flushed: count });
+      const result = await flushToOpenClaw();
+      json(res, 200, { ok: true, flushed: result.count, restarted: result.restarted });
       return;
     }
     if (urlPath === '/api/openclaw/stage' && method === 'PUT') {

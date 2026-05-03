@@ -111,7 +111,7 @@ export const fetchContextEditingConfig = () =>
   request<Record<string, unknown>>('/api/context-editing/config');
 
 export const updateContextEditingConfig = (config: Record<string, unknown>) =>
-  request<{ ok: boolean }>('/api/context-editing/config', {
+  request<{ ok: boolean; restarted?: boolean }>('/api/context-editing/config', {
     method: 'PUT',
     body: JSON.stringify(config),
   });

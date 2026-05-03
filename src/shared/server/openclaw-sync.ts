@@ -74,6 +74,26 @@ export async function stageOpenClawWrites(
 // ---------------------------------------------------------------------------
 
 /**
+ * Paths where openclaw >= 2026.4.27 chooses hot-reload over a restart, but
+ * the hot-reload does NOT propagate the new value into plugin runtimes that
+ * captured an `api.config` reference at load time (e.g. ContextEditing's
+ * `resolveExtractionTargets` reads `agents.defaults.compaction.model` from
+ * `api.config` on every call but the reference is the stale snapshot).
+ *
+ * For these paths we override the `afterWrite` policy to `'restart'` so
+ * `replaceConfigFile` forces a clean gateway restart and plugins see the
+ * updated values on next load. Pre-4.27 openclaw always restarted on any
+ * write, so this restores the prior behavior for the affected fields only.
+ *
+ * Add a path here only after confirming hot-reload doesn't take effect for
+ * it — over-restarting defeats the point of openclaw's reload planner.
+ */
+const MUST_RESTART_PATHS: ReadonlySet<string> = new Set([
+  'agents.defaults.compaction.model',
+  'agents.defaults.contextPruning',
+]);
+
+/**
  * Apply all pending writes to openclaw.json and clear the pending set.
  * Call this at the end of CLI init or from the dashboard Sync button.
  *
@@ -82,16 +102,25 @@ export async function stageOpenClawWrites(
  * trigger the gateway's file-watcher hot-reload. Pending entries are
  * always cleared regardless of whether the disk was touched.
  *
- * @returns Number of writes actually applied to disk (0 if all were no-ops).
+ * When any changed path is in `MUST_RESTART_PATHS`, the underlying
+ * `saveOpenClawConfig` call is invoked with `afterWrite: 'restart'` so
+ * the gateway restarts cleanly instead of attempting an ineffective
+ * hot-reload. See the constant's docstring for why.
+ *
+ * @returns `{ count, restarted }`. `count` is the number of writes
+ *   actually applied to disk (0 if all were no-ops). `restarted` is true
+ *   iff a `'restart'` afterWrite policy was sent to the gateway — used
+ *   by the dashboard PUT handlers to drive the "Gateway restarting…"
+ *   overlay only when a restart was actually requested.
  */
-export async function flushToOpenClaw(): Promise<number> {
+export async function flushToOpenClaw(): Promise<{ count: number; restarted: boolean }> {
   const store = await ConfigStore.read();
   const pending = (store[STORE_KEY_OPENCLAW_PENDING] || {}) as Record<string, unknown>;
   const paths = Object.keys(pending);
 
   if (paths.length === 0) {
     logger.debug('[openclaw-sync] Nothing to flush');
-    return 0;
+    return { count: 0, restarted: false };
   }
 
   // Load current openclaw.json.
@@ -117,19 +146,29 @@ export async function flushToOpenClaw(): Promise<number> {
       paths,
     });
     await ConfigStore.update(STORE_KEY_OPENCLAW_PENDING, {});
-    return 0;
+    return { count: 0, restarted: false };
   }
 
-  await saveOpenClawConfig(config);
+  const restartPaths = changedPaths.filter((p) => MUST_RESTART_PATHS.has(p));
+  if (restartPaths.length > 0) {
+    await saveOpenClawConfig(config, {
+      afterWrite: 'restart',
+      reason: `sapience-middleware-suite: hot-reload-broken paths changed (${restartPaths.join(', ')})`,
+    });
+  } else {
+    await saveOpenClawConfig(config);
+  }
   logger.info('[openclaw-sync] Flushed to openclaw.json', {
     count: changedPaths.length,
     paths: changedPaths,
+    forcedRestart: restartPaths.length > 0,
+    restartPaths: restartPaths.length > 0 ? restartPaths : undefined,
   });
 
   // Clear pending
   await ConfigStore.update(STORE_KEY_OPENCLAW_PENDING, {});
 
-  return changedPaths.length;
+  return { count: changedPaths.length, restarted: restartPaths.length > 0 };
 }
 
 // ---------------------------------------------------------------------------

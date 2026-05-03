@@ -146,24 +146,48 @@ export async function loadOpenClawConfig(): Promise<OpenClawConfig | null> {
  * Uses the gateway runtime API when running in-process (atomic writes,
  * backup rotation, schema validation, listener notification), falls back
  * to file I/O when running from the CLI.
+ *
+ * `afterWrite` controls openclaw's post-write behavior on >= 2026.4.27:
+ *   - `'auto'` (default): the gateway's reload planner decides hot-reload
+ *     vs. restart based on which paths changed.
+ *   - `'restart'`: force a clean gateway restart. Required for paths that
+ *     openclaw classifies as hot-reloadable but where the hot-reload does
+ *     not propagate into already-captured `api.config` references held by
+ *     plugin runtimes (e.g. `agents.defaults.compaction.model` —
+ *     ContextEditingMiddleware reads it from `api.config` but openclaw's
+ *     hot-reload does not refresh that reference). When `'restart'` is
+ *     used, a `reason` string should be supplied for telemetry.
  */
-export async function saveOpenClawConfig(config: OpenClawConfig): Promise<void> {
+export async function saveOpenClawConfig(
+  config: OpenClawConfig,
+  options?: { afterWrite?: 'auto' | 'restart'; reason?: string }
+): Promise<void> {
+  const afterWriteMode = options?.afterWrite ?? 'auto';
+  const afterWritePolicy =
+    afterWriteMode === 'restart'
+      ? {
+          mode: 'restart' as const,
+          reason: options?.reason ?? 'sapience-middleware-suite: forced restart on config write',
+        }
+      : { mode: 'auto' as const };
+
   // Gateway context — atomic write with backup rotation, schema validation,
   // and listener notification.
   //
-  // Prefer `replaceConfigFile({ afterWrite: "auto" })` on openclaw >= 2026.4.27
-  // (the "auto" policy defers reload-vs-restart to the gateway's reload planner,
-  // matching the old `writeConfigFile` behavior). Fall back to the deprecated
-  // `writeConfigFile()` for older gateways (2026.4.11 – 2026.4.26) where the
-  // new API doesn't exist yet.
+  // Prefer `replaceConfigFile` on openclaw >= 2026.4.27. Fall back to the
+  // deprecated `writeConfigFile()` for older gateways (2026.4.11 – 2026.4.26)
+  // where the new API doesn't exist yet — those versions always restart on
+  // any write, so the `afterWrite` mode is effectively a no-op there.
   if (_runtime) {
     try {
       if (typeof _runtime.config.replaceConfigFile === 'function') {
         await _runtime.config.replaceConfigFile({
           nextConfig: config as Record<string, unknown>,
-          afterWrite: { mode: 'auto' },
+          afterWrite: afterWritePolicy,
         });
-        logger.info('OpenClaw config saved via runtime API (replaceConfigFile)');
+        logger.info('OpenClaw config saved via runtime API (replaceConfigFile)', {
+          afterWrite: afterWriteMode,
+        });
         return;
       }
       if (typeof _runtime.config.writeConfigFile === 'function') {

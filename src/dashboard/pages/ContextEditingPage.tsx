@@ -19,6 +19,7 @@ import { DataTable } from '../components/DataTable';
 import { ConfigForm, FormField } from '../components/ConfigForm';
 import { formatNumber, formatTimestamp } from '../services/formatters';
 import { useMiddlewareEnabled } from '../services/useMiddlewareEnabled';
+import { notifyGatewayRestart } from '../services/gateway';
 import {
   DEFAULT_ICC_SYSTEM_PROMPT,
   DEFAULT_ICC_SCHEMA_JSON,
@@ -326,8 +327,15 @@ export function ContextEditingPage(_props: { path?: string }) {
                 delete toPersist.customInstructions;
                 delete toPersist.customSchema;
               }
-              await updateContextEditingConfig(toPersist);
+              const result = await updateContextEditingConfig(toPersist);
               setConfig(val);
+              // The PUT handler returns `restarted: true` only when the flush
+              // actually requested a gateway restart (compaction model or
+              // contextPruning changed). Show the overlay so the user knows
+              // the gateway is coming back up before retrying their next turn.
+              if (result?.restarted) {
+                notifyGatewayRestart('Context Editing settings saved');
+              }
             }}
           />
         </div>
