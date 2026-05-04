@@ -9,6 +9,22 @@ This product includes software derived from third-party open-source projects.
 The applicable copyright notices, license terms, and required attributions are
 listed below.
 
+Apache License, Version 2.0, Section 4(d) compliance note: where an upstream
+Apache-2.0 project ships its own NOTICE file, Section 4(d) requires the
+attribution-notice portion of that file to be reproduced verbatim in this
+NOTICE. As of the date below, the upstream Apache-2.0 projects referenced in
+this file (Reins, OpenClaw Shield, OpenGuardrails) do not distribute a NOTICE
+file — only a LICENSE file — so no additional verbatim attribution text is
+required. This was verified by inspecting the root of each upstream repository:
+
+    - https://github.com/pegasi-ai/reins             (no NOTICE; LICENSE only)
+    - https://github.com/knostic/openclaw-shield     (no NOTICE; LICENSE only)
+    - https://github.com/openguardrails/openguardrails (no NOTICE; LICENSE only)
+
+Verified: 2026-05-04. If any upstream project later adds a NOTICE file, the
+relevant attribution portion must be reproduced verbatim under the matching
+section below.
+
 ================================================================================
 1. Reins (Human-in-the-Loop Middleware)
 ================================================================================
