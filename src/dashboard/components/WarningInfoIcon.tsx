@@ -48,6 +48,7 @@ export function WarningInfoIcon({ tooltip, ariaLabel }: WarningInfoIconProps) {
         lineHeight: '1',
         flexShrink: 0,
         userSelect: 'none',
+        textTransform: 'none',
       }}
     >
       i
