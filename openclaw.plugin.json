@@ -4,6 +4,9 @@
   "description": "Sapience AI's 6-in-1 middleware suite for OpenClaw. These middlewares sit between your agent and and the systems it can affect — intercepting every turn and every tool call, enforcing Human-in-the-Loop gates, redacting PII, blocking prompt injection, routing to the right model, and capping token spend. All locally. Zero telemetry. Nothing leaves your machine.",
   "version": "1.0.2",
   "main": "dist/plugin/index.js",
+  "activation": {
+    "onStartup": true
+  },
   "configSchema": {
     "type": "object",
     "additionalProperties": false,

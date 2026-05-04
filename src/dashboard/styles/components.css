@@ -51,7 +51,7 @@
 .stat-value {
   font-weight: 300;
   font-size: 36px;
-  color: var(--sai-text-primary);
+  color: var(--sai-purple);
   letter-spacing: -1px;
   line-height: 1.1;
 }

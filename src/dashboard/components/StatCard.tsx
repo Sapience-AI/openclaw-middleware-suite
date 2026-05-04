@@ -12,10 +12,10 @@ interface StatCardProps {
   value: string | number;
   trend?: string;
   trendDir?: 'up' | 'down';
-  /** Optional override for the stat-value color. Used by Model Routing's
-   *  Overview to match the purple tone the cost-source cards use for their
-   *  spend numbers, so the Routing Stats and Cost Sources rows read as
-   *  visually paired numeric blocks. */
+  /** Optional override for the stat-value color. Default is `--sai-purple`
+   *  (set via `.stat-value` in components.css); pass any CSS color string
+   *  here to override per-card — e.g. red for an error count, green for a
+   *  success indicator. */
   valueColor?: string;
 }
 

@@ -18,6 +18,7 @@ import {
   updateRoutingTiers,
 } from '../services/api';
 import { StatCard } from '../components/StatCard';
+import { WarningInfoIcon } from '../components/WarningInfoIcon';
 import { DataTable } from '../components/DataTable';
 import { Chart } from '../components/Chart';
 import { ConfigForm, FormField } from '../components/ConfigForm';
@@ -490,23 +491,17 @@ export function ModelRoutingPage(_props: { path?: string }) {
             <div>
               <div class="page-section-title">Routing Stats</div>
               <div class="grid-2">
-                {/* `valueColor` matches the plum tone the cost-source cards
-                    use for their dollar values (#674C67, also `--sai-purple`),
-                    so the two top-row blocks read as a paired numeric set. */}
                 <StatCard
                   label="Requests Routed"
                   value={formatNumber((stats.total as number) || 0)}
-                  valueColor="var(--sai-purple)"
                 />
                 <StatCard
                   label="Simple"
                   value={formatNumber(((stats.byTier as Record<string, number>)?.SIMPLE) || 0)}
-                  valueColor="var(--sai-purple)"
                 />
                 <StatCard
                   label="Standard"
                   value={formatNumber(((stats.byTier as Record<string, number>)?.STANDARD) || 0)}
-                  valueColor="var(--sai-purple)"
                 />
                 <StatCard
                   label="Complex + Reasoning"
@@ -514,7 +509,6 @@ export function ModelRoutingPage(_props: { path?: string }) {
                     (((stats.byTier as Record<string, number>)?.COMPLEX) || 0) +
                       (((stats.byTier as Record<string, number>)?.REASONING) || 0)
                   )}
-                  valueColor="var(--sai-purple)"
                 />
               </div>
             </div>
@@ -891,22 +885,9 @@ function SourceCostCard(props: {
   return (
     <div class="stat-card" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
       <div class="stat-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-        <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: '4px' }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
           {label}
-          {tooltip ? (
-            <span
-              title={tooltip}
-              aria-label={tooltip}
-              style={{
-                cursor: 'help',
-                color: 'var(--sai-text-muted)',
-                fontSize: '11px',
-                borderBottom: '1px dotted var(--sai-text-muted)',
-              }}
-            >
-              ⓘ
-            </span>
-          ) : null}
+          {tooltip ? <WarningInfoIcon tooltip={tooltip} /> : null}
         </span>
         <span style={{ fontSize: '11px', color: 'var(--sai-text-muted)' }}>
           {requestCount} {requestCount === 1 ? 'request' : 'requests'}
