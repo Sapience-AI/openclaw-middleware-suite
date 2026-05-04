@@ -244,7 +244,7 @@ OpenGuardrails project.
 
   Project:   OpenGuardrails
   Source:    https://github.com/openguardrails/openguardrails
-             (pinned snapshot: commit b079ea095c, 2026-02-15)
+             (pinned snapshot dated 2026-02-15; see pinned LICENSE URL below)
   License:   Modified Apache License, Version 2.0 — a non-canonical license
              that incorporates the Apache 2.0 grant and adds two upstream-
              specific conditions (multi-tenant SaaS prohibition and frontend
@@ -266,7 +266,7 @@ OpenGuardrails project.
 
   ----------------------------------------------------------------------------
   Additional conditions (reproduced verbatim from the upstream LICENSE at
-  commit b079ea095c):
+  the pinned snapshot referenced above):
   ----------------------------------------------------------------------------
 
       # Open Source License
@@ -348,20 +348,20 @@ OpenGuardrails project.
   Important notice on upstream relicensing:
   ----------------------------------------------------------------------------
 
-  The OpenGuardrails project relicensed to GNU AGPL-3.0 on 2026-04-17
-  (commit f2db52dabb, "Update version to 7.0.0, new oss for agent
-  security") and was subsequently renamed to "thomas" (now hosted at
+  The OpenGuardrails project relicensed to GNU AGPL-3.0 on 2026-04-17 and
+  was subsequently renamed to "thomas" (now hosted at
   https://github.com/trustunknown/thomas). The pinned snapshot referenced
-  above (commit b079ea095c, 2026-02-15) predates that relicense, so the
-  derivation reflected in this NOTICE is governed by the modified Apache
-  2.0 terms reproduced verbatim above — not by AGPL-3.0.
+  above (dated 2026-02-15) predates that relicense, so the derivation
+  reflected in this NOTICE is governed by the modified Apache 2.0 terms
+  reproduced verbatim above — not by AGPL-3.0.
 
   Maintainers MUST NOT pull additional code, rules, taxonomy entries, or
-  patterns from any commit of the upstream repository at or after
-  f2db52dabb without first re-evaluating license compatibility with this
-  project, as AGPL-3.0 imposes copyleft and network-server source-
-  disclosure obligations that are incompatible with the Apache-2.0 license
-  under which this product as a whole is distributed.
+  patterns from any version of the upstream repository dated on or after
+  the AGPL-3.0 relicense (2026-04-17) without first re-evaluating license
+  compatibility with this project, as AGPL-3.0 imposes copyleft and
+  network-server source-disclosure obligations that are incompatible with
+  the Apache-2.0 license under which this product as a whole is
+  distributed.
 
   The following files in this repository contain detection rules and
   classification patterns derived from the OpenGuardrails risk taxonomy
