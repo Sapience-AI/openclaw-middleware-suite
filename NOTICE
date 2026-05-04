@@ -9,22 +9,6 @@ This product includes software derived from third-party open-source projects.
 The applicable copyright notices, license terms, and required attributions are
 listed below.
 
-Apache License, Version 2.0, Section 4(d) compliance note: where an upstream
-Apache-2.0 project ships its own NOTICE file, Section 4(d) requires the
-attribution-notice portion of that file to be reproduced verbatim in this
-NOTICE. As of the date below, the upstream Apache-2.0 projects referenced in
-this file (Reins, OpenClaw Shield, OpenGuardrails) do not distribute a NOTICE
-file — only a LICENSE file — so no additional verbatim attribution text is
-required. This was verified by inspecting the root of each upstream repository:
-
-    - https://github.com/pegasi-ai/reins             (no NOTICE; LICENSE only)
-    - https://github.com/knostic/openclaw-shield     (no NOTICE; LICENSE only)
-    - https://github.com/openguardrails/openguardrails (no NOTICE; LICENSE only)
-
-Verified: 2026-05-04. If any upstream project later adds a NOTICE file, the
-relevant attribution portion must be reproduced verbatim under the matching
-section below.
-
 ================================================================================
 1. Reins (Human-in-the-Loop Middleware)
 ================================================================================
@@ -244,17 +228,9 @@ OpenGuardrails project.
 
   Project:   OpenGuardrails
   Source:    https://github.com/openguardrails/openguardrails
-             (pinned snapshot dated 2026-02-15; see pinned LICENSE URL below)
-  License:   Modified Apache License, Version 2.0 — a non-canonical license
-             that incorporates the Apache 2.0 grant and adds two upstream-
-             specific conditions (multi-tenant SaaS prohibition and frontend
-             brand-attribution requirement), plus a contributor agreement.
-             This is NOT the standard Apache 2.0; the additional conditions
-             are reproduced verbatim below and the upstream LICENSE text is
-             pinned to a specific commit so the terms cannot silently shift.
+  License:   Modified Apache License, Version 2.0 (non-canonical — adds
+             upstream-specific conditions reproduced verbatim below)
   Upstream LICENSE (pinned): https://github.com/openguardrails/openguardrails/blob/b079ea095c/LICENSE
-  Apache 2.0 base text (referenced by the upstream license):
-                              https://www.apache.org/licenses/LICENSE-2.0
 
   Copyright (c) OpenGuardrails contributors. All rights reserved.
 
@@ -264,10 +240,8 @@ OpenGuardrails project.
   distributed under the license is distributed on an "AS IS" BASIS, WITHOUT
   WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 
-  ----------------------------------------------------------------------------
   Additional conditions (reproduced verbatim from the upstream LICENSE at
   the pinned snapshot referenced above):
-  ----------------------------------------------------------------------------
 
       # Open Source License
 
@@ -324,44 +298,6 @@ OpenGuardrails project.
 
       The interactive design of this product is protected by appearance
       patent.
-
-  ----------------------------------------------------------------------------
-  Compliance posture for this project:
-  ----------------------------------------------------------------------------
-
-  - Multi-tenant SaaS (condition 1.a): the OpenClaw Middleware Suite is a
-    library that runs locally inside the user's own agent process. It is not
-    operated as a hosted multi-tenant SaaS by this project, and the
-    OpenGuardrails-derived rules below are exercised inside the end user's
-    own deployment. Downstream redistributors who use the OpenGuardrails-
-    derived rules to power a multi-tenant SaaS must obtain a commercial
-    license directly from OpenGuardrails — that obligation is not waivable
-    by us.
-  - Brand identity (condition 1.b): the restriction applies only to the
-    OpenGuardrails frontend (the `frontend/` directory / Docker image of the
-    upstream repo). This project does not embed, redistribute, or expose
-    that frontend; only backend rule definitions and classification
-    patterns are derived. The condition therefore does not attach to the
-    derivation in this repository.
-
-  ----------------------------------------------------------------------------
-  Important notice on upstream relicensing:
-  ----------------------------------------------------------------------------
-
-  The OpenGuardrails project relicensed to GNU AGPL-3.0 on 2026-04-17 and
-  was subsequently renamed to "thomas" (now hosted at
-  https://github.com/trustunknown/thomas). The pinned snapshot referenced
-  above (dated 2026-02-15) predates that relicense, so the derivation
-  reflected in this NOTICE is governed by the modified Apache 2.0 terms
-  reproduced verbatim above — not by AGPL-3.0.
-
-  Maintainers MUST NOT pull additional code, rules, taxonomy entries, or
-  patterns from any version of the upstream repository dated on or after
-  the AGPL-3.0 relicense (2026-04-17) without first re-evaluating license
-  compatibility with this project, as AGPL-3.0 imposes copyleft and
-  network-server source-disclosure obligations that are incompatible with
-  the Apache-2.0 license under which this product as a whole is
-  distributed.
 
   The following files in this repository contain detection rules and
   classification patterns derived from the OpenGuardrails risk taxonomy
