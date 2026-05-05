@@ -514,7 +514,38 @@ export class ContextEditingMiddleware implements Middleware {
     try {
       const path = await import('path');
       const fs = await import('fs');
-      const anchors = [process.argv[1]].filter(Boolean);
+
+      // Anchor candidates for createRequire. We try both the raw
+      // `process.argv[1]` AND its realpath:
+      //
+      //  - On pnpm installs (e.g. `~/.local/share/pnpm/global/N/node_modules/
+      //    openclaw/dist/index.js`), `process.argv[1]` is the public symlink
+      //    path. Node walks parent node_modules from there, but pnpm's
+      //    hoisted openclaw deps live under `.pnpm/openclaw@<ver>_<peer>/
+      //    node_modules/` — those parent dirs aren't in the symlink chain
+      //    and are skipped by the standard resolver.
+      //  - The realpath of `process.argv[1]` lands inside `.pnpm/openclaw@.../
+      //    node_modules/openclaw/dist/`, and from there `resolve.paths`
+      //    finds the sibling `@mariozechner/pi-coding-agent` symlink that
+      //    pnpm placed in the same `.pnpm/openclaw@.../node_modules/` dir.
+      //
+      // OpenClaw 2026.5.x changed the pnpm path shape (added a peer-dep
+      // suffix on the openclaw .pnpm folder) and the symlink-only anchor
+      // stopped resolving sibling deps; including the realpath fixes that
+      // without breaking npm/yarn flat-layout installs (where realpath ==
+      // raw path, so the second attempt is a no-op).
+      const rawAnchor = process.argv[1];
+      const anchors = new Set<string>();
+      if (rawAnchor) {
+        anchors.add(rawAnchor);
+        try {
+          const real = fs.realpathSync(rawAnchor);
+          if (real) anchors.add(real);
+        } catch {
+          /* realpath may fail on missing/permissioned anchors; ignore */
+        }
+      }
+
       for (const anchor of anchors) {
         try {
           const hostRequire = createRequire(anchor);

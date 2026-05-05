@@ -538,11 +538,12 @@ export class ModelRoutingMiddleware implements Middleware {
     }
 
     // Auto-populate openai provider from targetApiKey (mirrors anthropic/google above)
-    if (!base.providers.openai && base.targetApiKey) {
+    const targetKey = base.targetApiKey;
+    if (!base.providers.openai && targetKey) {
       base.providers.openai = {
         name: 'openai',
         baseUrl: base.targetBaseUrl,
-        apiKey: base.targetApiKey,
+        apiKey: targetKey,
         format: 'openai',
       };
     }

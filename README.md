@@ -737,6 +737,7 @@ openclaw gateway restart
 **Config and audit data are kept by default.** The on-disk config store at `~/.openclaw/sapience-ai-suite/` (HITL policies, model routes, guardrail rules, audit trail JSONL, MFA secrets) survives the uninstall — reinstalling later picks it back up automatically. To wipe it:
 
 ```bash
+# Only continue after user confirmation — this permanently removes audit logs, MFA secrets, and policies.
 rm -rf ~/.openclaw/sapience-ai-suite
 ```
 

@@ -114,7 +114,7 @@ export function buildSapienceRouterProvider(
     models: {
       baseUrl: `http://127.0.0.1:${port}/v1`,
       api: 'openai-completions',
-      apiKey: 'sapience-proxy-handles-routing',
+      apiKey: 'placeholder-sai-router',
       models: modelList,
     },
     auth: [],

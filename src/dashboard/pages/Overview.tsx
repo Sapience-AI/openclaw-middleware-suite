@@ -14,6 +14,7 @@ import { notifyGatewayRestart } from '../services/gateway';
 import { StatusBadge } from '../components/StatusBadge';
 import { Toggle } from '../components/Toggle';
 import { StatCard } from '../components/StatCard';
+import { WarningInfoIcon } from '../components/WarningInfoIcon';
 import { showToast } from '../components/Toast';
 import { formatNumber } from '../services/formatters';
 
@@ -122,7 +123,14 @@ export function Overview(_props: { path?: string }) {
             <div class="mw-card" key={mw.name}>
               <div class="mw-card-header">
                 <div>
-                  <div class="mw-card-name">{formatMwName(mw.name)}</div>
+                  <div class="mw-card-name" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                    {formatMwName(mw.name)}
+                    {mw.name === 'context-editing' && (
+                      <WarningInfoIcon
+                        tooltip="Enabling this may trigger a gateway restart if your openclaw.json has a different agents.defaults.compaction.model or agents.defaults.contextPruning value than the suite's defaults — the dual-write that syncs Context Editing's settings into openclaw.json will detect the diff and force a clean restart so the new compaction target takes effect."
+                      />
+                    )}
+                  </div>
                   <div class="mw-card-pills">
                     <span class="pill pill-purple">v{mw.version}</span>
                     {mw.name === 'model-routing' && (

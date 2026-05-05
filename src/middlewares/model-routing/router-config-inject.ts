@@ -70,7 +70,7 @@ export async function injectModelsConfig(
       providerConfig.api = 'openai-completions';
     }
     if (!providerConfig.apiKey) {
-      providerConfig.apiKey = 'sapience-proxy-handles-routing';
+      providerConfig.apiKey = 'placeholder-sai-router';
     }
     // Always refresh models list
     providerConfig.models = modelList;
@@ -78,7 +78,7 @@ export async function injectModelsConfig(
     providerConfig = {
       baseUrl: expectedBaseUrl,
       api: 'openai-completions',
-      apiKey: 'sapience-proxy-handles-routing',
+      apiKey: 'placeholder-sai-router',
       models: modelList,
     };
   }
@@ -196,7 +196,7 @@ export function injectAuthProfile(): void {
       store.profiles[profileKey] = {
         type: 'api_key',
         provider: 'sai-router',
-        key: 'sapience-proxy-handles-routing',
+        key: 'placeholder-sai-router',
       };
 
       try {
