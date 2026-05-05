@@ -70,6 +70,17 @@ export interface SessionBuffer {
   baselineMessageCount: number;
   /** Token count baseline at last compaction — delta = estimatedTokens - baseline */
   baselineTokens: number;
+  /**
+   * `false` until `TriggerEvaluator.syncSessionStats` first observes the
+   * session. The first sync anchors `baselineMessageCount` /
+   * `baselineTokens` to the live counts so a session that already had
+   * messages before CE began watching it (CE enabled mid-session, gateway
+   * restart while a session is active, plugin reload, disable→re-enable)
+   * doesn't immediately trip the message/token thresholds. Mirrors the
+   * post-compaction semantic where `resetSession` re-anchors
+   * `baseline = messageCount`.
+   */
+  hasBeenSynced: boolean;
 }
 
 // ---------------------------------------------------------------------------

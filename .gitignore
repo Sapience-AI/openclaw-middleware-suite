@@ -41,4 +41,4 @@ SecurityReports/
 blog/
 
 # ClawHub Static Scan
-scripts/clawhub-static-scan.mjs
+scripts/clawhub-static-scanner.mjs

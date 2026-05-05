@@ -104,19 +104,14 @@ export async function isOpenClawInstalled(): Promise<boolean> {
  * falls back to file I/O when running from the CLI.
  */
 export async function loadOpenClawConfig(): Promise<OpenClawConfig | null> {
-  // Gateway context — use the runtime's cached config snapshot.
-  // Prefer `current()` (openclaw >= 2026.4.27); fall back to the deprecated
-  // `loadConfig()` for older gateways (2026.4.11 – 2026.4.26). Both return
-  // a frozen/readonly snapshot, so deep-clone before returning to callers
+  // Gateway context — use the runtime's cached config snapshot via
+  // `current()` (introduced in openclaw 2026.4.27, guaranteed present by
+  // our `peerDependencies.openclaw >= 2026.5.3` floor). The snapshot is
+  // frozen/readonly, so deep-clone before returning to callers
   // (flushToOpenClaw, cleanOpenclawConfig) that need to mutate.
   if (_runtime) {
     try {
-      const snapshot =
-        typeof _runtime.config.current === 'function'
-          ? _runtime.config.current()
-          : typeof _runtime.config.loadConfig === 'function'
-            ? _runtime.config.loadConfig()
-            : null;
+      const snapshot = _runtime.config.current();
       if (snapshot) {
         return JSON.parse(JSON.stringify(snapshot)) as OpenClawConfig;
       }
@@ -172,29 +167,18 @@ export async function saveOpenClawConfig(
       : { mode: 'auto' as const };
 
   // Gateway context — atomic write with backup rotation, schema validation,
-  // and listener notification.
-  //
-  // Prefer `replaceConfigFile` on openclaw >= 2026.4.27. Fall back to the
-  // deprecated `writeConfigFile()` for older gateways (2026.4.11 – 2026.4.26)
-  // where the new API doesn't exist yet — those versions always restart on
-  // any write, so the `afterWrite` mode is effectively a no-op there.
+  // and listener notification via `replaceConfigFile()` (introduced in
+  // openclaw 2026.4.27, guaranteed present by our peerDep floor).
   if (_runtime) {
     try {
-      if (typeof _runtime.config.replaceConfigFile === 'function') {
-        await _runtime.config.replaceConfigFile({
-          nextConfig: config as Record<string, unknown>,
-          afterWrite: afterWritePolicy,
-        });
-        logger.info('OpenClaw config saved via runtime API (replaceConfigFile)', {
-          afterWrite: afterWriteMode,
-        });
-        return;
-      }
-      if (typeof _runtime.config.writeConfigFile === 'function') {
-        await _runtime.config.writeConfigFile(config as Record<string, unknown>);
-        logger.info('OpenClaw config saved via runtime API (writeConfigFile, deprecated)');
-        return;
-      }
+      await _runtime.config.replaceConfigFile({
+        nextConfig: config as Record<string, unknown>,
+        afterWrite: afterWritePolicy,
+      });
+      logger.info('OpenClaw config saved via runtime API (replaceConfigFile)', {
+        afterWrite: afterWriteMode,
+      });
+      return;
     } catch (err) {
       logger.warn('[config-manager] runtime config write failed, falling back to file I/O', {
         error: err,
@@ -354,13 +338,7 @@ export function getPluginMiddlewaresConfigSync(): Record<string, boolean> {
 
     if (_runtime) {
       try {
-        // Prefer current() (openclaw >= 2026.4.27); fall back to
-        // deprecated loadConfig() for older gateways.
-        if (typeof _runtime.config.current === 'function') {
-          config = _runtime.config.current();
-        } else if (typeof _runtime.config.loadConfig === 'function') {
-          config = _runtime.config.loadConfig();
-        }
+        config = _runtime.config.current();
       } catch {
         // fall through to file I/O
       }

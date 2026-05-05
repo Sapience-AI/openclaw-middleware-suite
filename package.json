@@ -2,7 +2,7 @@
   "name": "@sapience-ai-corporation/openclaw-middleware-suite",
   "displayName": "OpenClaw Middleware Suite",
   "type": "module",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Sapience AI's 6-in-1 middleware suite for OpenClaw. These middlewares sit between your agent and and the systems it can affect — intercepting every turn and every tool call, enforcing Human-in-the-Loop gates, redacting PII, blocking prompt injection, routing to the right model, and capping token spend. All locally. Zero telemetry. Nothing leaves your machine.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -106,7 +106,7 @@
     "winston": "^3.11.0"
   },
   "peerDependencies": {
-    "openclaw": ">=2026.4.11"
+    "openclaw": ">=2026.5.3"
   },
   "publishConfig": {
     "access": "public",
@@ -157,12 +157,12 @@
       "dist/plugin/index.js"
     ],
     "compat": {
-      "pluginApi": ">=2026.4.11",
-      "minGatewayVersion": "2026.4.11"
+      "pluginApi": ">=2026.5.3",
+      "minGatewayVersion": "2026.5.3"
     },
     "build": {
-      "openclawVersion": "2026.4.11",
-      "pluginSdkVersion": "2026.4.11"
+      "openclawVersion": "2026.5.4",
+      "pluginSdkVersion": "2026.5.4"
     }
   }
 }
