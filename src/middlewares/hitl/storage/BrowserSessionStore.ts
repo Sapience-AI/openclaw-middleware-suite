@@ -221,15 +221,17 @@ export class BrowserSessionStore {
           currentHeaders.authorization === undefined &&
           currentHeaders.Authorization === undefined
         ) {
-          if (persistedHeaders.authorization !== undefined) {
-            currentHeaders.authorization = persistedHeaders.authorization;
+          const persistedAuth = persistedHeaders.authorization;
+          if (persistedAuth !== undefined) {
+            currentHeaders.authorization = persistedAuth;
             injectedFields.push('headers.authorization');
           }
         }
 
         if (currentHeaders.cookie === undefined && currentHeaders.Cookie === undefined) {
-          if (persistedHeaders.cookie !== undefined) {
-            currentHeaders.cookie = persistedHeaders.cookie;
+          const persistedCookie = persistedHeaders.cookie;
+          if (persistedCookie !== undefined) {
+            currentHeaders.cookie = persistedCookie;
             injectedFields.push('headers.cookie');
           }
         }
