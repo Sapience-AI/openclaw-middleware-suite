@@ -102,7 +102,7 @@
     "commander": "^11.1.0",
     "fs-extra": "^11.2.0",
     "inquirer": "^13.4.2",
-    "otpauth": "^9.5.0",
+    "otpauth": "^9.5.1",
     "winston": "^3.11.0"
   },
   "peerDependencies": {
