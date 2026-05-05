@@ -342,7 +342,14 @@ export function GuardrailPage(_props: { path?: string }) {
   const saveOutput = async (update: Partial<OutputScrubberConfig>) => {
     const next: GuardrailConfig = { ...config };
     const current: OutputScrubberConfig = next.outputScrubber ?? {
-      enabled: true,
+      // Mirrors `DEFAULT_OUTPUT_SCRUBBER_CONFIG` — disabled until the
+      // operator opts in via this checkbox. The output scrubber is a
+      // sub-feature of Guardrail; toggling it here flips
+      // `outputScrubber.enabled` only. The runtime hook also requires
+      // Guardrail itself to be enabled (master toggle on the Overview
+      // page) — `outputScrubber.enabled` is read inside the hook
+      // handler after the Guardrail master gate.
+      enabled: false,
       dryRunMode: false,
       replacementText: '',
       customPatterns: [],
@@ -371,7 +378,11 @@ export function GuardrailPage(_props: { path?: string }) {
     customPatterns: [],
   };
   const os_ = config.outputScrubber ?? {
-    enabled: true,
+    // Display fallback — should match `DEFAULT_OUTPUT_SCRUBBER_CONFIG`.
+    // Without this the checkbox would display checked even when no
+    // config has been persisted, contradicting the disabled-by-default
+    // master toggle.
+    enabled: false,
     dryRunMode: false,
     replacementText: '',
     customPatterns: [],

@@ -37,7 +37,6 @@ import {
   buildRouterModelList,
   buildSapienceRouterProvider,
 } from '../middlewares/model-routing/router-provider.js';
-import { createOutputGuardrailHook } from '../middlewares/guardrail/OutputGuardrailHook.js';
 import { ConfigStore as GuardrailConfigStore } from '../middlewares/guardrail/storage/ConfigStore.js';
 import { GuardrailMiddleware } from '../middlewares/guardrail/GuardrailMiddleware.js';
 import { LimitPolicyStore } from '../middlewares/tool-call-limit/storage/LimitPolicyStore.js';
@@ -321,7 +320,6 @@ export default {
         'context-editing': false,
         'model-routing': false,
         guardrail: false,
-        'output-guardrail': false,
         'pii-sanitizer': false,
         'tool-call-limit': false,
       };
@@ -621,6 +619,19 @@ export default {
           'guardrail:before_agent_start'
         );
 
+        // `before_message_write` runs both stages of guardrail back-to-back
+        // inside `GuardrailMiddleware.beforeMessageWrite`:
+        //   1. Security write scanner — fires for all roles, may block /
+        //      rewrite / pass through.
+        //   2. Output scrubber — fires only for assistant messages when
+        //      `guardrail.outputScrubber.enabled` is true. Operates on the
+        //      security stage's rewrite if one occurred, else on the
+        //      original content.
+        // Both share the same per-turn gate (`isPluginEnabled`) and the
+        // same per-instance config (`resolveConfig()`), so external
+        // programmatic consumers calling `guardrail.beforeMessageWrite`
+        // get identical behavior to the plugin runtime — no extra
+        // factories or hook wiring needed on the consumer side.
         tryOn(
           api,
           'before_message_write',
@@ -637,21 +648,6 @@ export default {
         logger.info(
           'Sapience AI Suite: Guardrail is currently disabled; hooks are attached but inert until enabled.'
         );
-      }
-
-      // =================================================================
-      // Output Guardrail — metadata scrubber (before_message_write)
-      // Fires after the guardrail write scanner on the same hook.
-      // =================================================================
-      if (activeMiddlewares['output-guardrail'] === true) {
-        tryOn(
-          api,
-          'before_message_write',
-          createOutputGuardrailHook() as (...args: unknown[]) => unknown,
-          'output-guardrail:before_message_write'
-        );
-      } else if (isFirstLoad) {
-        logger.info('Sapience AI Suite: Output Guardrail middleware is disabled by config.');
       }
 
       // =================================================================

@@ -74,7 +74,6 @@ export type MiddlewareName =
   | 'context-editing'
   | 'model-routing'
   | 'guardrail'
-  | 'output-guardrail'
   | 'pii-sanitizer'
   | 'tool-call-limit';
 
@@ -111,15 +110,14 @@ const CLEANUP_REGISTRY: Record<MiddlewareName, CleanupSpec> = {
   },
 
   guardrail: {
-    files: [GUARDRAIL_CONFIG_FILE, GUARDRAIL_AUDIT_FILE],
-    dirs: [GUARDRAIL_DIR],
-    storeKeys: [STORE_KEY_GUARDRAIL],
-  },
-
-  'output-guardrail': {
-    files: [OUTPUT_GUARDRAIL_CONFIG_FILE],
-    dirs: [OUTPUT_GUARDRAIL_DIR],
-    storeKeys: [STORE_KEY_OUTPUT_GUARDRAIL],
+    // Output Guardrail is a sub-feature of Guardrail (its config lives in
+    // `guardrail.outputScrubber` and its hook is gated on Guardrail's
+    // master toggle). The `OUTPUT_GUARDRAIL_*` paths/keys are vestigial
+    // from the standalone-middleware era and are folded here so a
+    // disable-cleanup sweeps any legacy residue from older installs.
+    files: [GUARDRAIL_CONFIG_FILE, GUARDRAIL_AUDIT_FILE, OUTPUT_GUARDRAIL_CONFIG_FILE],
+    dirs: [GUARDRAIL_DIR, OUTPUT_GUARDRAIL_DIR],
+    storeKeys: [STORE_KEY_GUARDRAIL, STORE_KEY_OUTPUT_GUARDRAIL],
   },
 
   'pii-sanitizer': {

@@ -215,7 +215,7 @@ sai hitl reset            # Reset statistics
 
 ##### Why It Exists
 
-LLM context windows are finite — and expensive. Every token in the context window costs money on every single request. As a session grows, you're paying to re-read thousands of tokens of stale conversation history that the agent no longer needs. A 120K-token session hitting GPT-4 on every turn can burn through dollars in minutes, most of it on context the model is barely using.
+LLM context windows are finite — and expensive. Every token in the context window costs money on every single request. As a session grows, you're paying to re-read thousands of tokens of stale conversation history that the agent no longer needs. A 120K-token session hitting Opus 4.7 on every turn can burn through dollars in minutes, most of it on context the model is barely using.
 
 And it's not just cost. In long coding sessions, the agent gradually loses its earliest instructions, forgets key decisions, and starts contradicting itself as critical context gets pushed out by noise. Naive truncation throws away important context indiscriminately.
 
@@ -227,30 +227,30 @@ Context Editing solves both problems: it compresses old messages using LLM-power
 Turn Begins
   │
   └─ before_model_resolve hook ──→ (fires BEFORE OpenClaw's SessionManager opens the JSONL)
-                                     │
-                                     ├─ Walk session JSONL
-                                     │    ├─ Count user messages
-                                     │    └─ Sum assistant token usage
-                                     │
-                                     ├─ Evaluate triggers
-                                     │    ├─ Token count > threshold?
-                                     │    ├─ Message count > threshold?
-                                     │    └─ Adaptive rules?
-                                     │
-                                     ▼  (if triggered)
-                                  Run ICC extraction
-                                     ├─ Priority Preservation
-                                     ├─ Conflict Resolution
-                                     └─ Entity Locks
-                                     │
-                                     ▼
-                                  Append compaction entry to JSONL
-                                     │
-                                     ▼
-  └─ OpenClaw opens SessionManager ──→ Reads compacted JSONL
-                                         │
-                                         ▼
-                                      LLM call sees compacted history
+                                          │
+                                          ├─ Walk session JSONL
+                                          │    ├─ Count user messages
+                                          │    └─ Sum assistant token usage
+                                          │
+                                          ├─ Evaluate triggers
+                                          │    ├─ Token count > threshold?
+                                          │    ├─ Message count > threshold?
+                                          │    └─ Adaptive rules?
+                                          │
+                                          ▼  (if triggered)
+                                        Run ICC extraction
+                                          ├─ Priority Preservation
+                                          ├─ Conflict Resolution
+                                          └─ Entity Locks
+                                          │
+                                          ▼
+                                        Append compaction entry to JSONL
+                                          │
+                                          ▼
+  └─ OpenClaw opens SessionManager ──→  Reads compacted JSONL
+                                          │
+                                          ▼
+                                        LLM call sees compacted history
 ```
 
 The single-hook design does everything in one place: detect, extract, and write — all *before* OpenClaw's own SessionManager opens the JSONL, so there's no concurrent-SM-on-same-file race. The same turn's LLM call sees the compacted history (no one-turn lag). Per-turn assistant token usage is read directly from the persisted JSONL entries, so the `tokensSaved` metric stays provider-precise without needing a separate push hook.
@@ -310,7 +310,7 @@ sai ctx reset     # Clear compaction state
 
 ##### Why It Exists
 
-Not every request needs GPT-4 or Claude Opus. A simple "list files in this directory" doesn't need a $0.015/1K-token model — but without routing, that's what it gets. Model Routing scores request complexity in real time and routes to the optimal model tier, cutting costs by up to 70% without sacrificing quality where it matters.
+Not every request needs GPT-5 or Claude Opus. A simple "list files in this directory" doesn't need a $0.015/1K-token model — but without routing, that's what it gets. Model Routing scores request complexity in real time and routes to the optimal model tier, cutting costs by up to 70% without sacrificing quality where it matters.
 
 ##### How It Works
 
@@ -494,11 +494,12 @@ Sapience Guardrail did not emerge in a vacuum. Both comparables contributed foun
   "sensitivePaths": { "enabled": true, "action": "BLOCK" },
   "egressControl": { "enabled": true, "blockDataSending": true },
   "destructiveCommands": { "enabled": true, "action": "BLOCK" },
-  "moderation": { "rewriteThreshold": "HIGH" }
+  "moderation": { "rewriteThreshold": "HIGH" },
+  "outputScrubber": { "enabled": false, "dryRunMode": false }
 }
 ```
 
-The middleware's on/off switch is the plugin-level flag (`plugin_config.middlewares.guardrail` in `sapience-ai-suite.json`, managed via the dashboard or `sai init`), not a field inside this config. The sub-feature `enabled` flags above (sensitivePaths, egressControl, destructiveCommands) toggle individual guards *within* the guardrail middleware when it's already running.
+The middleware's on/off switch is the plugin-level flag (`plugin_config.middlewares.guardrail` in `sapience-ai-suite.json`, managed via the dashboard or `sai init`), not a field inside this config. The sub-feature `enabled` flags above (sensitivePaths, egressControl, destructiveCommands, outputScrubber) toggle individual guards *within* the guardrail middleware when it's already running. **Output scrubber is double-gated**: the master Guardrail toggle must be on AND `outputScrubber.enabled` must be `true`. Both default to `false` so a fresh install ships with neither active — opt in via the dashboard's Guardrail → Output tab or `sai guardrail output toggle enable`.
 
 `moderation.rewriteThreshold` controls the severity bar for the async → sync cache bridge. Accepts `MEDIUM`, `HIGH`, or `CRITICAL` — default is `HIGH`. Flags at or above the threshold trigger a transcript rewrite in `before_message_write` (hard block); flags below are logged audit-only and pass through so the LLM's own safety layer can handle the gray zone without a synthetic `[GUARDRAIL]` marker replacing the user's prompt. Set to `MEDIUM` for maximum strictness, or `CRITICAL` to only hard-block the most severe categories.
 
@@ -653,7 +654,7 @@ sai limits reset     # Reset counters
   <img src="https://raw.githubusercontent.com/Sapience-AI/openclaw-middleware-suite/main/assets/dashboard.svg" alt="Sapience AI Middleware Suite dashboard" width="100%" />
 </p>
 
-The dashboard is a **Preact single-page application** served by the OpenClaw gateway. It provides live configuration, status monitoring, and log streaming for every middleware in the suite.
+The dashboard is a **Preact application** served by the OpenClaw gateway. It provides live configuration, status monitoring, and log streaming for every middleware in the suite.
 
 **Pages:**
 
@@ -668,29 +669,6 @@ The dashboard is a **Preact single-page application** served by the OpenClaw gat
 | **Tool Call Limits** | Usage tracking, limit configuration                                |
 
 **Tech stack:** Preact + preact-router, @preact/signals for state, uPlot for charts, SSE for real-time streaming.
-
----
-
-### Plugin Manifest
-
-This is what OpenClaw's plugin loader sees when the suite is registered:
-
-```json
-{
-  "id": "sapience-ai-suite",
-  "entry": "dist/plugin/index.js",
-  "hooks": [
-    "before_tool_call",
-    "before_prompt_build",
-    "before_agent_start",
-    "before_message_write",
-    "agent_end",
-    "llm_output"
-  ]
-}
-```
-
-The entry exports `SapienceMiddlewarePlugin` (a default-export object conforming to `SapienceMiddlewareManifest`). The loader registers each declared hook and dispatches to the in-process pipeline runner (`MiddlewareRegistry`).
 
 ---
 
@@ -814,12 +792,10 @@ interface Middleware {
 
   // OpenClaw lifecycle events (implement only the surfaces you need)
   beforeAgentStart?(context: AgentStartContext): Promise<AgentStartResult | void>;
-  beforePromptBuild?(context: PromptBuildContext): Promise<PromptBuildResult | void>;
+  beforeModelResolve?(context: ModelResolveContext): Promise<ModelResolveResult | void>;
   beforeMessageWrite?(
     context: MessageWriteContext
   ): MessageWriteResult | undefined | Promise<MessageWriteResult | undefined>;
-  agentEnd?(context: AgentEndContext): Promise<void>;
-  llmOutput?(context: LlmOutputContext): Promise<void>;
 
   // Lifecycle / reporting
   getStatus(): { enabled: boolean; stats?: Record<string, unknown> };
@@ -838,7 +814,7 @@ interface MiddlewareResult {
 }
 ```
 
-Every lifecycle context (`MiddlewareContext`, `AgentStartContext`, `PromptBuildContext`, `MessageWriteContext`, `AgentEndContext`, `LlmOutputContext`) extends a shared `LifecycleContext` base, so session-scoped fields (`sessionKey`, `agentId`, `runId`, `metadata`) live in the same place regardless of which event fired.
+Every lifecycle context (`MiddlewareContext`, `AgentStartContext`, `ModelResolveContext`, `MessageWriteContext`) extends a shared `LifecycleContext` base, so session-scoped fields (`sessionKey`, `agentId`, `runId`, `metadata`) live in the same place regardless of which event fired.
 
 > `MiddlewareResult.reason` (pipeline-level) is distinct from `BeforeToolCallResult.blockReason` (the OpenClaw `before_tool_call` hook return contract). See the note under [HITL → Programmatic API](#programmatic-hitl) for why the two coexist.
 
@@ -1275,7 +1251,7 @@ import {
 |---|---|---|
 | `beforeToolCall(ctx: MiddlewareContext)` | `before_tool_call` | Sensitive paths, egress control, destructive commands, shell indirection, pre-read scan, param pattern scan (regex + prefix + heuristic + Unicode NFKC + confidence filter) |
 | `beforeAgentStart(ctx: AgentStartContext)` | `before_agent_start` | Prompt-guard policy injection, async OpenAI Moderation API (caches result for `beforeMessageWrite`) |
-| `beforeMessageWrite(ctx: MessageWriteContext)` | `before_message_write` | Role impersonation, agent interrogation, canary tracker, transcript regex/prefix/heuristic scan, moderation-cache enforcement |
+| `beforeMessageWrite(ctx: MessageWriteContext)` | `before_message_write` | **Two stages in one method.** (a) Security write scanner — all roles: role impersonation, agent interrogation, canary tracker, transcript regex/prefix/heuristic scan, moderation-cache enforcement; may block, rewrite, or pass through. (b) Output scrubber — assistant only, gated on `guardrail.outputScrubber.enabled`: strips middleware tokens, reasoning artifacts, architecture leaks, instruction-reflection patterns; operates on stage (a)'s rewrite when one occurred. Same method drives both the OpenClaw plugin runtime and programmatic `MiddlewareRegistry`-style use. |
 
 **Block / escalate / pass — same shape across the suite.** `beforeToolCall` returns the standard `MiddlewareResult`. Hard BLOCK detections set `block: true`; WARN detections (which want HITL approval rather than a hard deny) set the first-class `escalate: true` + `escalateReason` fields instead — the same channel `PiiSanitizerMiddleware` uses for its ESCALATE-severity DLP rules, so orchestrators read one consistent field across middlewares:
 
@@ -1482,41 +1458,40 @@ The counter trackers (`SessionTracker` / `RequestTracker`) are intentionally pri
 
 ## Hook Pipeline
 
-Every tool call passes through the middleware pipeline in order:
+Each agent turn fires four OpenClaw hooks the suite cares about, in this order:
 
 ```
-before_tool_call
+before_model_resolve   ◀── earliest, fires before SM_A opens the JSONL
   │
-  ├─ 1. Guardrail scan      → Block injection, exfiltration, destructive commands
-  ├─ 2. PII DLP scan        → Block or redact PII in parameters
-  ├─ 3. Tool call limit     → Enforce session / request budgets
-  └─ 4. HITL evaluation     → Apply policy; ASK → approval queue
-  │
-  ▼
-before_message_write
-  │
-  ├─ 5. Write scanner       → Scan outgoing content (L3 guards)
-  └─ 6. Output scrubber     → Strip middleware tokens from agent responses
-  │
-  ▼
-before_prompt_build
-  │
-  └─ 7. Context editing     → Inject ICC directives, sync session stats
+  └─ 1. Context Editing      → Open SM_B on session JSONL, walk getEntries()
+  │                             to count user messages and sum assistant
+  │                             usage, evaluate triggers, and run ICC +
+  │                             appendCompaction inline if threshold met.
+  │                             Same turn's LLM call sees compacted history.
   │
   ▼
 before_agent_start
   │
-  └─ 8. Context compaction  → Execute scheduled compaction before session opens
+  └─ 2. Guardrail            → Prompt-guard + moderation: scan the inbound
+  │                             prompt and prepend a moderation prefix to
+  │                             the system context if needed.
   │
   ▼
-agent_end
+before_tool_call          (per tool call inside the turn)
   │
-  └─ 9. Trigger evaluation  → Check if compaction is needed for next turn
+  ├─ 3. Guardrail scan       → Block injection, exfiltration, destructive
+  │                             commands.
+  ├─ 4. PII DLP scan         → Block or redact PII in tool params.
+  ├─ 5. Tool call limit      → Enforce session / request budgets.
+  └─ 6. HITL evaluation      → Apply policy; ASK → approval queue.
   │
   ▼
-llm_output
+before_message_write          (single Guardrail handler, two stages)
   │
-  └─ 10. Token tracking     → Record assistant token usage for savings
+  ├─ 7. Guardrail write scan → Block injection, role impersonation,
+  │                             canary leakback (all roles).
+  └─ 8. Output scrubber      → Strip middleware tokens (assistant only,
+                                gated on `outputScrubber.enabled`).
 ```
 
 ---
@@ -1584,7 +1559,6 @@ git clone https://github.com/Sapience-AI/openclaw-middleware-suite.git
 cd openclaw-middleware-suite
 npm install
 npm run build            # Compile TypeScript + Vite dashboard
-npm run dev:dashboard    # Dev server on port 5173
 npm test                 # 237 tests, 0 failures
 npm run lint             # ESLint
 npm run format           # Prettier

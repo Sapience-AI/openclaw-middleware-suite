@@ -31,10 +31,6 @@
             "type": "boolean",
             "default": false
           },
-          "output-guardrail": {
-            "type": "boolean",
-            "default": false
-          },
           "pii-sanitizer": {
             "type": "boolean",
             "default": false
@@ -49,7 +45,6 @@
           "context-editing": true,
           "model-routing": false,
           "guardrail": false,
-          "output-guardrail": false,
           "pii-sanitizer": false,
           "tool-call-limit": true
         }

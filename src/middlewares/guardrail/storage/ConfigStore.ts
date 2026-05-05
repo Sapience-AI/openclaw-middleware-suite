@@ -31,7 +31,12 @@ import { ConfigStore as UnifiedStore } from '../../../shared/storage/ConfigStore
 import { STORE_KEY_GUARDRAIL, STORE_KEY_PLUGIN_CONFIG } from '../../../shared/storage/paths.js';
 
 export const DEFAULT_OUTPUT_SCRUBBER_CONFIG: OutputScrubberConfig = {
-  enabled: true,
+  // Disabled by default. The output scrubber is a sub-feature of
+  // Guardrail (no separate master toggle); operators opt in via the
+  // dashboard's Guardrail → Output tab checkbox or
+  // `sai guardrail output toggle enable`. The runtime hook also
+  // requires Guardrail itself to be enabled.
+  enabled: false,
   dryRunMode: false,
   replacementText: '',
   customPatterns: [],

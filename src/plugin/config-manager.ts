@@ -321,7 +321,6 @@ export async function getPluginMiddlewaresConfig(): Promise<Record<string, boole
     'context-editing': false,
     'model-routing': false,
     guardrail: false,
-    'output-guardrail': false,
     'pii-sanitizer': false,
     'tool-call-limit': false,
   };
@@ -391,7 +390,6 @@ export function getPluginMiddlewaresConfigSync(): Record<string, boolean> {
     'context-editing': false,
     'model-routing': false,
     guardrail: false,
-    'output-guardrail': false,
     'pii-sanitizer': false,
     'tool-call-limit': false,
   };

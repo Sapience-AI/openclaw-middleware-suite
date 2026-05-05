@@ -52,8 +52,11 @@ export const outputStatusCommand = async () => {
 export const outputToggleCommand = async (state: string) => {
   const config = await ConfigStore.load();
   if (!config.outputScrubber) {
+    // Match `DEFAULT_OUTPUT_SCRUBBER_CONFIG` (disabled by default). The
+    // explicit case below overrides this when the user passes
+    // `enable` / `dry-run`; for `disable` it stays `false`.
     config.outputScrubber = {
-      enabled: true,
+      enabled: false,
       dryRunMode: false,
       replacementText: '',
       customPatterns: [],

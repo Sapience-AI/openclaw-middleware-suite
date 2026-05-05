@@ -38,7 +38,6 @@ const ALL_MIDDLEWARES: MiddlewareName[] = [
   'context-editing',
   'model-routing',
   'guardrail',
-  'output-guardrail',
   'pii-sanitizer',
   'tool-call-limit',
 ];

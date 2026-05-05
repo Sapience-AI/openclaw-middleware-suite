@@ -24,15 +24,21 @@
 // suite binds to today:
 //
 //   beforeToolCall      — tool-call orchestration (HITL, guardrail, PII, limits)
-//   afterToolCall       — post-tool tracking (context-editing token accounting)
-//   beforeAgentStart    — turn start (guardrail prompt-guard + moderation,
-//                         context-editing scheduled compaction)
-//   beforePromptBuild   — prompt finalization (context-editing session stats,
-//                         ICC system-prompt injection)
+//   afterToolCall       — post-tool tracking (extension point — no in-suite
+//                         implementer; MiddlewareRegistry.executeAfterPipeline
+//                         dispatches it for embedded consumers)
+//   beforeAgentStart    — turn start (guardrail prompt-guard + moderation)
+//   beforeModelResolve  — earliest per-turn hook, fires before SM_A opens the
+//                         JSONL (context-editing compaction pipeline runs here)
 //   beforeMessageWrite  — transcript write gate (guardrail write scanner +
-//                         moderation enforcement)
-//   agentEnd            — turn completion (context-editing trigger evaluation)
-//   llmOutput           — per-response hook (context-editing token savings)
+//                         moderation enforcement, output-guardrail scrubber)
+//
+// `before_prompt_build`, `agent_end`, and `llm_output` slots were dropped
+// in 1.0.3: no in-suite middleware implements them, no registry runner
+// dispatches them, and on openclaw ≥ 2026.4.24 the latter two are
+// conversation-access-gated so they no-op for non-bundled plugins anyway.
+// Consumer plugins that need those phases can register their own
+// `api.on(...)` handlers directly against the OpenClaw plugin SDK.
 //
 // All methods except `initialize` and `getStatus` are optional — implement
 // only the surfaces your middleware cares about. Every lifecycle context
@@ -122,15 +128,6 @@ export interface AgentStartResult {
   reason?: string;
 }
 
-/** `before_prompt_build` normalized context — fires just before prompt finalization. */
-export interface PromptBuildContext extends LifecycleContext {
-  prompt?: string;
-  messages?: unknown[];
-}
-export interface PromptBuildResult {
-  appendSystemContext?: string;
-}
-
 /** `before_message_write` normalized context — fires before any message is persisted. */
 export interface MessageWriteContext extends LifecycleContext {
   content?: string;
@@ -148,26 +145,6 @@ export interface MessageWriteResult {
   reason?: string;
 }
 
-/** `agent_end` normalized context — fires after the turn completes. */
-export interface AgentEndContext extends LifecycleContext {
-  messages?: unknown[];
-  success?: boolean;
-  durationMs?: number;
-  error?: unknown;
-}
-
-/** `llm_output` normalized context — fires per LLM response. */
-export interface LlmOutputContext extends LifecycleContext {
-  content?: string;
-  usage?: {
-    input?: number;
-    output?: number;
-    total?: number;
-    cacheRead?: number;
-    cacheWrite?: number;
-  };
-}
-
 export interface Middleware {
   readonly name: string;
   readonly version: string;
@@ -180,12 +157,9 @@ export interface Middleware {
   // ── OpenClaw lifecycle events ────────────────────────────────────────
   beforeAgentStart?(context: AgentStartContext): Promise<AgentStartResult | void>;
   beforeModelResolve?(context: ModelResolveContext): Promise<ModelResolveResult | void>;
-  beforePromptBuild?(context: PromptBuildContext): Promise<PromptBuildResult | void>;
   beforeMessageWrite?(
     context: MessageWriteContext
   ): MessageWriteResult | undefined | Promise<MessageWriteResult | undefined>;
-  agentEnd?(context: AgentEndContext): Promise<void>;
-  llmOutput?(context: LlmOutputContext): Promise<void>;
 
   // ── Lifecycle / reporting ────────────────────────────────────────────
   getStatus(): { enabled: boolean; stats?: Record<string, unknown> };
