@@ -16,38 +16,13 @@ const {
 // Helpers — shape the runtime fakes per supported openclaw version.
 // ---------------------------------------------------------------------------
 
-function makeOldRuntime(initialConfig = { plugins: { entries: {} } }) {
-  // Pre-2026.4.27: only `loadConfig` / `writeConfigFile` exist.
-  const calls = { loadConfig: 0, writeConfigFile: 0 };
-  let stored = initialConfig;
-  return {
-    runtime: {
-      config: {
-        loadConfig() {
-          calls.loadConfig++;
-          return stored;
-        },
-        async writeConfigFile(cfg) {
-          calls.writeConfigFile++;
-          stored = cfg;
-        },
-      },
-    },
-    calls,
-    getStored: () => stored,
-  };
-}
-
 function makeNewRuntime(initialConfig = { plugins: { entries: {} } }) {
-  // openclaw >= 2026.4.27: all four exist; the new ones are preferred.
-  // Mirror the gateway-side behavior where loadConfig / writeConfigFile are
-  // deprecation shims that delegate to current / replaceConfigFile.
-  const calls = {
-    current: 0,
-    replaceConfigFile: 0,
-    loadConfig: 0,
-    writeConfigFile: 0,
-  };
+  // openclaw >= 2026.5.3 (our peerDep floor): `current` and
+  // `replaceConfigFile` are required. The legacy `loadConfig` /
+  // `writeConfigFile` shims were dropped from `OpenClawRuntime` in
+  // suite 1.0.3 — covering them here would be testing an interface we
+  // no longer ship.
+  const calls = { current: 0, replaceConfigFile: 0 };
   let stored = initialConfig;
   const config = {
     current() {
@@ -58,14 +33,6 @@ function makeNewRuntime(initialConfig = { plugins: { entries: {} } }) {
       calls.replaceConfigFile++;
       stored = params.nextConfig;
       return undefined;
-    },
-    loadConfig() {
-      calls.loadConfig++;
-      return stored;
-    },
-    async writeConfigFile(cfg) {
-      calls.writeConfigFile++;
-      stored = cfg;
     },
   };
   return { runtime: { config }, calls, getStored: () => stored };
@@ -85,33 +52,20 @@ function clearRuntime() {
 // Read path — loadOpenClawConfig
 // ---------------------------------------------------------------------------
 
-test('loadOpenClawConfig: openclaw >= 2026.4.27 — uses current() and skips deprecated loadConfig()', async () => {
-  const r = makeNewRuntime({ plugins: { entries: { 'foo': { enabled: true } } } });
+test('loadOpenClawConfig: uses runtime.config.current() snapshot', async () => {
+  const r = makeNewRuntime({ plugins: { entries: { foo: { enabled: true } } } });
   setOpenClawRuntime(r.runtime);
   try {
     const cfg = await loadOpenClawConfig();
-    assert.deepEqual(cfg, { plugins: { entries: { 'foo': { enabled: true } } } });
+    assert.deepEqual(cfg, { plugins: { entries: { foo: { enabled: true } } } });
     assert.equal(r.calls.current, 1);
-    assert.equal(r.calls.loadConfig, 0, 'must not invoke deprecated loadConfig() when current() exists');
-  } finally {
-    clearRuntime();
-  }
-});
-
-test('loadOpenClawConfig: openclaw < 2026.4.27 — falls back to deprecated loadConfig()', async () => {
-  const r = makeOldRuntime({ plugins: { entries: { 'bar': { enabled: false } } } });
-  setOpenClawRuntime(r.runtime);
-  try {
-    const cfg = await loadOpenClawConfig();
-    assert.deepEqual(cfg, { plugins: { entries: { 'bar': { enabled: false } } } });
-    assert.equal(r.calls.loadConfig, 1);
   } finally {
     clearRuntime();
   }
 });
 
 test('loadOpenClawConfig: deep-clones the snapshot so callers can mutate without leaking back', async () => {
-  const stored = { plugins: { entries: { 'a': { enabled: true } } } };
+  const stored = { plugins: { entries: { a: { enabled: true } } } };
   const r = makeNewRuntime(stored);
   setOpenClawRuntime(r.runtime);
   try {
@@ -129,57 +83,33 @@ test('loadOpenClawConfig: deep-clones the snapshot so callers can mutate without
 // Write path — saveOpenClawConfig
 // ---------------------------------------------------------------------------
 
-test('saveOpenClawConfig: openclaw >= 2026.4.27 — uses replaceConfigFile() with afterWrite mode "auto"', async () => {
+test('saveOpenClawConfig: uses replaceConfigFile() with afterWrite mode "auto" by default', async () => {
   const r = makeNewRuntime();
-  // Spy on the params replaceConfigFile receives.
   const calls = [];
   r.runtime.config.replaceConfigFile = async (params) => {
     calls.push(params);
   };
   setOpenClawRuntime(r.runtime);
   try {
-    await saveOpenClawConfig({ plugins: { entries: { 'x': { enabled: true } } } });
+    await saveOpenClawConfig({ plugins: { entries: { x: { enabled: true } } } });
     assert.equal(calls.length, 1);
-    assert.deepEqual(calls[0].nextConfig, { plugins: { entries: { 'x': { enabled: true } } } });
+    assert.deepEqual(calls[0].nextConfig, { plugins: { entries: { x: { enabled: true } } } });
     assert.deepEqual(calls[0].afterWrite, { mode: 'auto' });
   } finally {
     clearRuntime();
   }
 });
 
-test('saveOpenClawConfig: openclaw < 2026.4.27 — falls back to deprecated writeConfigFile()', async () => {
-  const r = makeOldRuntime();
-  setOpenClawRuntime(r.runtime);
-  try {
-    await saveOpenClawConfig({ plugins: { entries: { 'y': { enabled: true } } } });
-    assert.equal(r.calls.writeConfigFile, 1);
-    assert.deepEqual(r.getStored(), { plugins: { entries: { 'y': { enabled: true } } } });
-  } finally {
-    clearRuntime();
-  }
-});
-
-test('saveOpenClawConfig: openclaw >= 2026.4.27 — does NOT also call deprecated writeConfigFile()', async () => {
-  const r = makeNewRuntime();
-  setOpenClawRuntime(r.runtime);
-  try {
-    await saveOpenClawConfig({ plugins: { entries: { 'z': { enabled: true } } } });
-    assert.equal(r.calls.replaceConfigFile, 1);
-    assert.equal(
-      r.calls.writeConfigFile,
-      0,
-      'must not invoke deprecated writeConfigFile() when replaceConfigFile() exists',
-    );
-  } finally {
-    clearRuntime();
-  }
-});
-
 // ---------------------------------------------------------------------------
-// Defense — runtime missing both APIs must not crash the consumer
+// Defense — a malformed runtime missing the required APIs must not crash
+// the consumer. The interface declares `current()` / `replaceConfigFile()`
+// as required (see `OpenClawRuntime` in src/plugin/index.ts), but the test
+// case below exercises the runtime-error fallback: if openclaw ever ships
+// a build where the methods are missing or throw, the suite should fall
+// through to plain file I/O instead of crashing.
 // ---------------------------------------------------------------------------
 
-test('loadOpenClawConfig: neither current() nor loadConfig() exposed — falls through to file I/O', async () => {
+test('loadOpenClawConfig: runtime current() throwing falls through to file I/O', async () => {
   const r = makeBrokenRuntime();
   setOpenClawRuntime(r.runtime);
   try {
@@ -191,7 +121,7 @@ test('loadOpenClawConfig: neither current() nor loadConfig() exposed — falls t
   }
 });
 
-test('saveOpenClawConfig: neither replaceConfigFile() nor writeConfigFile() exposed — falls through to file I/O', async () => {
+test('saveOpenClawConfig: runtime replaceConfigFile() throwing falls through to file I/O', async () => {
   const r = makeBrokenRuntime();
   setOpenClawRuntime(r.runtime);
   try {

@@ -38,9 +38,14 @@ const loadScrubberConfig = async () => {
 };
 
 test('OutputScrubber: ConfigStore creates default outputScrubber on load', async () => {
+  // Default flipped from `enabled: true` to `false` in 1.0.3 alongside the
+  // Output Guardrail consolidation — the scrubber is now an opt-in
+  // sub-feature of Guardrail, so a fresh install ships with it off and the
+  // operator activates via Guardrail → Output tab or `sai guardrail output
+  // toggle enable`. See DEFAULT_OUTPUT_SCRUBBER_CONFIG in ConfigStore.ts.
   const cfg = await ConfigStore.load();
   assert.ok(cfg.outputScrubber, 'outputScrubber should exist');
-  assert.equal(cfg.outputScrubber.enabled, true);
+  assert.equal(cfg.outputScrubber.enabled, false);
   assert.equal(cfg.outputScrubber.dryRunMode, false);
   assert.ok(Array.isArray(cfg.outputScrubber.customPatterns));
 });
