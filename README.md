@@ -98,16 +98,16 @@ The plugin is the zero-code path: install the npm package, configure once with `
 # From npm (published plugin)
 openclaw plugins install @sapience-ai-corporation/openclaw-middleware-suite
 
-# Expose the `sai` CLI on your PATH (Windows users — admin / Developer Mode required)
-mkdir -p ~/.local/bin
-chmod +x ~/.openclaw/extensions/sapience-ai-suite/dist/index.js
-ln -sf ~/.openclaw/extensions/sapience-ai-suite/dist/index.js ~/.local/bin/sai
-
 # Or from source
 git clone https://github.com/Sapience-AI/openclaw-middleware-suite.git
 cd openclaw-middleware-suite
 npm install && npm run build
 openclaw plugins install --link .
+
+# Expose the `sai` CLI on your PATH (Windows users — admin / Developer Mode required)
+mkdir -p ~/.local/bin
+chmod +x ~/.openclaw/extensions/sapience-ai-suite/dist/index.js
+ln -sf ~/.openclaw/extensions/sapience-ai-suite/dist/index.js ~/.local/bin/sai
 ```
 
 #### 2. Configure
@@ -1477,7 +1477,7 @@ before_agent_start
   │                             the system context if needed.
   │
   ▼
-before_tool_call          (per tool call inside the turn)
+before_tool_call       ◀── per tool call inside the turn
   │
   ├─ 3. Guardrail scan       → Block injection, exfiltration, destructive
   │                             commands.
@@ -1486,7 +1486,7 @@ before_tool_call          (per tool call inside the turn)
   └─ 6. HITL evaluation      → Apply policy; ASK → approval queue.
   │
   ▼
-before_message_write          (single Guardrail handler, two stages)
+before_message_write   ◀── single Guardrail handler, two stages
   │
   ├─ 7. Guardrail write scan → Block injection, role impersonation,
   │                             canary leakback (all roles).
@@ -1559,7 +1559,7 @@ git clone https://github.com/Sapience-AI/openclaw-middleware-suite.git
 cd openclaw-middleware-suite
 npm install
 npm run build            # Compile TypeScript + Vite dashboard
-npm test                 # 237 tests, 0 failures
+npm test                 # Run Tests
 npm run lint             # ESLint
 npm run format           # Prettier
 ```
