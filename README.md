@@ -9,7 +9,7 @@
     Because 'Autonomous' shouldn't mean 'Uncontrolled.' 🦞
   </h3>
 
-  <p>A 6-in-1 middleware suite for <b>OpenClaw</b>. These middlewares sit between your agent and and the systems it can affect — intercepting every turn and every tool call, enforcing Human-in-the-Loop gates, redacting PII, blocking prompt injection, routing to the right model, and capping token spend. All locally. Zero telemetry. Nothing leaves your machine.</p>
+  <p>A 6-in-1 middleware suite for <b>OpenClaw</b>. These middlewares sit between your agent and and the systems it can affect, intercepting every turn and every tool call, enforcing Human-in-the-Loop gates, redacting PII, blocking prompt injection, routing to the right model, and capping token spend. All locally. Zero telemetry. Nothing leaves your machine.</p>
 
   <br />
 
@@ -36,11 +36,11 @@
 
 ## The Problem
 
-A single OpenClaw session can read your codebase, run arbitrary shell commands, manage your Google Drive, send emails on your behalf, and push code to production — all autonomously. And every turn along the way spends tokens, picks a model, and accumulates context.
+A single OpenClaw session can read your codebase, run arbitrary shell commands, manage your Google Drive, send emails on your behalf, and push code to production, all autonomously. And every turn along the way spends tokens, picks a model, and accumulates context.
 
-Today there is no layer between _"the agent decided to do something"_ and _"it happened."_ That gap hides three distinct problems — and they rarely share a solution:
+Today there is no layer between _"the agent decided to do something"_ and _"it happened."_ That gap hides three distinct problems, and they rarely share a solution:
 
-- **Safety gaps.** Sandboxing stops the agent from escaping its container. Inside that container, it still holds the keys to the kingdom: API tokens, file system access, outbound network, email credentials. One hallucinated `rm -rf`, one prompt injection buried in a fetched document, one leaked SSN in a tool argument — and you're dealing with real damage.
+- **Safety gaps.** Sandboxing stops the agent from escaping its container. Inside that container, it still holds the keys to the kingdom: API tokens, file system access, outbound network, email credentials. One hallucinated `rm -rf`, one prompt injection buried in a fetched document, one leaked SSN in a tool argument, and you're dealing with real damage.
 - **Runaway cost.** Every turn re-sends the full context window. Every request picks whatever model was wired in, whether the task needs it or not. A long coding session on a frontier model can burn through dollars in minutes, most of it spent re-reading stale history at premium rates.
 - **Degrading context.** As sessions grow, the agent loses its earliest instructions, forgets key decisions, and starts contradicting itself. Naive truncation throws away what matters; doing nothing blows the budget.
 
@@ -50,17 +50,17 @@ Today there is no layer between _"the agent decided to do something"_ and _"it h
 
 ## The Solution
 
-Sapience AI acts as the **control plane for OpenClaw**. Six middlewares — each solving a distinct failure mode — work together in a single pipeline.
+Sapience AI acts as the **control plane for OpenClaw**. Six middlewares (each solving a distinct failure mode) work together in a single pipeline.
 
 Four **govern and protect** the action surface:
-- **HITL** — Human approval for dangerous actions
-- **Guardrail** — Block prompt injection, data exfiltration, destructive commands
-- **PII Sanitizer** — Detect & redact sensitive data before it leaves
-- **Tool Call Limit** — Enforce session & request budgets
+- **HITL**: Human approval for dangerous actions
+- **Guardrail**: Block prompt injection, data exfiltration, destructive commands
+- **PII Sanitizer**: Detect & redact sensitive data before it leaves
+- **Tool Call Limit**: Enforce session & request budgets
 
 Two **optimize the request itself:**
-- **Context Editing** — Intelligent context window compaction, preserving what matters
-- **Model Routing** — Route requests to the right model for the job
+- **Context Editing**: Intelligent context window compaction, preserving what matters
+- **Model Routing**: Route requests to the right model for the job
 
 Together, they ensure every turn is safe, observable, and cost-effective.
 
@@ -79,8 +79,8 @@ Together, they ensure every turn is safe, observable, and cost-effective.
 
 The suite ships in **two consumption modes**, and the rest of this README is organized around that split:
 
-- **[Plugin](#plugin)** — install once, manage with the dashboard and `sai` CLI. Zero code. The OpenClaw gateway loads the middlewares for you and wires every hook.
-- **[Programmatic Usage](#programmatic-usage)** — `import { ... } from '@sapience-ai-corporation/openclaw-middleware-suite/<middleware>'`. Embed any subset directly in a Node app, bring your own pipeline, mix and match.
+- **[Plugin](#plugin)**: install once, manage with the dashboard and `sai` CLI. Zero code. The OpenClaw gateway loads the middlewares for you and wires every hook.
+- **[Programmatic Usage](#programmatic-usage)**: `import { ... } from '@sapience-ai-corporation/openclaw-middleware-suite/<middleware>'`. Embed any subset directly in a Node app, bring your own pipeline, mix and match.
 
 Both modes share the same on-disk config store, so you can start with the plugin and graduate into programmatic embedding without re-learning anything.
 
@@ -88,7 +88,7 @@ Both modes share the same on-disk config store, so you can start with the plugin
 
 <h2 id="plugin">Plugin</h2>
 
-The plugin is the zero-code path: install the npm package, configure once with `sai init`, and the OpenClaw gateway loads all six middlewares and wires every hook. Every operational concern — toggling middlewares on/off, editing policies, viewing audit logs, syncing model catalogs — happens through the dashboard or `sai` CLI.
+The plugin is the zero-code path: install the npm package, configure once with `sai init`, and the OpenClaw gateway loads all six middlewares and wires every hook. Every operational concern (toggling middlewares on/off, editing policies, viewing audit logs, syncing model catalogs) happens through the dashboard or `sai` CLI.
 
 ### Quick Start
 
@@ -113,10 +113,10 @@ ln -sf ~/.openclaw/extensions/sapience-ai-suite/dist/index.js ~/.local/bin/sai
 #### 2. Configure
 
 ```bash
-# Interactive wizard — walks you through security level, modules, and policies
+# Interactive wizard, walks you through security level, modules, and policies
 sai init
 
-# Start the gateway — dashboard served at http://localhost:9000/dashboard
+# Start the gateway, dashboard served at http://localhost:9000/dashboard
 openclaw gateway start
 ```
 
@@ -124,11 +124,11 @@ That's it. From here, every middleware can be toggled, configured, and inspected
 
 ### How the Plugin Works
 
-A few facts that apply to all six middlewares once they're loaded as a plugin — worth knowing before you tweak anything:
+A few facts that apply to all six middlewares once they're loaded as a plugin, worth knowing before you tweak anything:
 
 - **One authoritative disk store.** All six share the same config file: `~/.openclaw/sapience-ai-suite/sapience-ai-suite.json`. The dashboard, the `sai` CLI, and the middlewares themselves all read and write the same JSON. There is no per-middleware config file scattered around the filesystem.
-- **Plugin-level on/off flag.** Each middleware has a boolean toggle at `plugin_config.middlewares[name]` in that file (managed via the dashboard's overview page or `sai init`). When the flag is `false`, the plugin runtime short-circuits the corresponding hook — the middleware code isn't executed, so disabling is free of cost.
-- **Operational config lives under each middleware's sub-tree.** `hitl`, `context_editing`, `model_routing`, `guardrail`, `pii_sanitizer`, `tool_call_limit` — each owns its own block. (HITL nests its user config under `hitl.policy`; Context Editing under `context_editing.configOverrides`.) These are what the dashboard editors and `sai <middleware>` CLI subcommands manipulate.
+- **Plugin-level on/off flag.** Each middleware has a boolean toggle at `plugin_config.middlewares[name]` in that file (managed via the dashboard's overview page or `sai init`). When the flag is `false`, the plugin runtime short-circuits the corresponding hook. The middleware code isn't executed, so disabling is free of cost.
+- **Operational config lives under each middleware's sub-tree.** `hitl`, `context_editing`, `model_routing`, `guardrail`, `pii_sanitizer`, `tool_call_limit`: each owns its own block. (HITL nests its user config under `hitl.policy`; Context Editing under `context_editing.configOverrides`.) These are what the dashboard editors and `sai <middleware>` CLI subcommands manipulate.
 - **The plugin runtime always passes `{}` at `initialize()`.** It relies entirely on the disk overlay for configuration. The one exception is **Context Editing**, which receives `{ pluginApi }` so its ICC LLM extraction can dispatch through OpenClaw's plugin API. This is what makes plugin behavior fully reproducible: defaults + whatever's in `sapience-ai-suite.json`, nothing else.
 
 ### Middlewares
@@ -145,7 +145,7 @@ Quick links: [HITL](#hitl) · [Context Editing](#context-editing) · [Model Rout
 
 ##### Why It Exists
 
-AI agents make mistakes. They hallucinate file paths, misinterpret instructions, and occasionally try to do things that would be catastrophic in production. HITL ensures that a human reviews high-risk actions before they happen — not after.
+AI agents make mistakes. They hallucinate file paths, misinterpret instructions, and occasionally try to do things that would be catastrophic in production. HITL ensures that a human reviews high-risk actions before they happen, not after.
 
 ##### How It Works
 
@@ -170,18 +170,18 @@ Tool Call Arrives
                                     └─ /deny ──→ Block
 ```
 
-##### Features — vs. ClawReins
+##### Features vs. ClawReins
 
-[ClawReins](https://github.com/pegasi-ai/reins) is the closest comparable HITL layer for OpenClaw. The two share a common foundation — three-decision policies, irreversibility scoring, destructive command detection, and a WhatsApp/Telegram approval channel. Sapience HITL extends that foundation in two places that matter most: **a broader set of protected tools, and an approval mechanism the agent can't bypass.**
+[ClawReins](https://github.com/pegasi-ai/reins) is the closest comparable HITL layer for OpenClaw. The two share a common foundation: three-decision policies, irreversibility scoring, destructive command detection, and a WhatsApp/Telegram approval channel. Sapience HITL extends that foundation in two places that matter most: **a broader set of protected tools, and an approval mechanism the agent can't bypass.**
 
 **Legend:** ✅ supported &nbsp;·&nbsp; ❌ not present
 
 | Feature                                                                                                           |             ClawReins             |        Sapience HITL         |
 | ----------------------------------------------------------------------------------------------------------------- | :-------------------------------: | :--------------------------: |
-| **Policy model** — `ALLOW` / `DENY` / `ASK` per module & method, with `allowPaths` / `denyPaths` globs            |                ✅                 |              ✅              |
-| **Risk scoring** — irreversibility (0–100), destructive classifier (`HIGH` / `CATASTROPHIC`), trajectory forecast |                ✅                 |              ✅              |
-| **Approval queue** — async WhatsApp/Telegram + TTY with TTL expiry & trust rate limiting                          |                ✅                 |              ✅              |
-| **Immutable audit trail** — append-only JSONL with full risk scores per decision                                  |                ✅                 |              ✅              |
+| **Policy model**: `ALLOW` / `DENY` / `ASK` per module & method, with `allowPaths` / `denyPaths` globs            |                ✅                 |              ✅              |
+| **Risk scoring**: irreversibility (0–100), destructive classifier (`HIGH` / `CATASTROPHIC`), trajectory forecast |                ✅                 |              ✅              |
+| **Approval queue**: async WhatsApp/Telegram + TTY with TTL expiry & trust rate limiting                          |                ✅                 |              ✅              |
+| **Immutable audit trail**: append-only JSONL with full risk scores per decision                                  |                ✅                 |              ✅              |
 | **Catastrophic-action confirmation**                                                                              |  On-screen `CONFIRM-XXXX` token   |   **TOTP 2FA** (RFC 6238)    |
 | **Agent cannot read the approval code** (self-approval prevention)                                                | ❌ token appears in terminal/chat | ✅ code generated off-device |
 | **ArgsHash enforcement on retry** (prevents param substitution)                                                   |          ❌ logged only           |   ✅ verified on approval    |
@@ -211,7 +211,7 @@ sai hitl reset            # Reset statistics
 
 #### :brain: Context Editing
 
-> **Intelligent context window compaction.** Long sessions don't lose critical context — the middleware automatically compresses old messages while preserving what matters.
+> **Intelligent context window compaction.** Long sessions don't lose critical context. The middleware automatically compresses old messages while preserving what matters.
 
 ##### Why It Exists
 
@@ -219,7 +219,7 @@ LLM context windows are finite — and expensive. Every token in the context win
 
 And it's not just cost. In long coding sessions, the agent gradually loses its earliest instructions, forgets key decisions, and starts contradicting itself as critical context gets pushed out by noise. Naive truncation throws away important context indiscriminately.
 
-Context Editing solves both problems: it compresses old messages using LLM-powered extraction (ICC), keeping token counts — and costs — under control while preserving the context that actually matters.
+Context Editing solves both problems: it compresses old messages using LLM-powered extraction (ICC), keeping token counts (and costs) under control while preserving the context that actually matters.
 
 ##### How It Works
 
@@ -253,7 +253,7 @@ Turn Begins
                                         LLM call sees compacted history
 ```
 
-The single-hook design does everything in one place: detect, extract, and write — all *before* OpenClaw's own SessionManager opens the JSONL, so there's no concurrent-SM-on-same-file race. The same turn's LLM call sees the compacted history (no one-turn lag). Per-turn assistant token usage is read directly from the persisted JSONL entries, so the `tokensSaved` metric stays provider-precise without needing a separate push hook.
+The single-hook design does everything in one place: detect, extract, and write, all *before* OpenClaw's own SessionManager opens the JSONL, so there's no concurrent-SM-on-same-file race. The same turn's LLM call sees the compacted history (no one-turn lag). Per-turn assistant token usage is read directly from the persisted JSONL entries, so the `tokensSaved` metric stays provider-precise without needing a separate push hook.
 
 ##### ICC Pipeline (Intelligent Context Compression)
 
@@ -263,31 +263,31 @@ The single-hook design does everything in one place: detect, extract, and write 
 | **Conflict Resolution**   | Contradictions in the transcript are detected and resolved      |
 | **Entity Locks**          | Key values (names, paths, config values) are preserved verbatim |
 
-##### Features — vs. OpenClaw's Built-in Compaction
+##### Features vs. OpenClaw's Built-in Compaction
 
-OpenClaw already ships a robust compaction pipeline: when a prompt would overflow the context window, it splits the transcript into chunks, summarizes each one, then merges the partials — a bulk summarizer built to survive oversized tool outputs, tool-call pairing constraints, and transient API failures. Sapience Context Editing **does not replace that pipeline — it adds a cheaper, steerable fast path on top of it.**
+OpenClaw already ships a robust compaction pipeline: when a prompt would overflow the context window, it splits the transcript into chunks, summarizes each one, then merges the partials. The result is a bulk summarizer built to survive oversized tool outputs, tool-call pairing constraints, and transient API failures. Sapience Context Editing **does not replace that pipeline. It adds a cheaper, steerable fast path on top of it.**
 
-The fast path is a **single LLM call** whose output (the ICC extraction: entities, conflicts, priorities) _is_ the compaction summary. One call means the prompt can be user-steered, the model can be swapped, and compaction can fire early on your own thresholds instead of waiting for overflow. If the ICC call ever fails — for example, on a transcript too large for the extraction model's window — the middleware simply skips that turn and OpenClaw's native overflow-triggered compaction handles it on the next prompt exactly as it would for a vanilla install. You never lose coverage; you just lose the steering on the overflow edge case.
+The fast path is a **single LLM call** whose output (the ICC extraction: entities, conflicts, priorities) _is_ the compaction summary. One call means the prompt can be user-steered, the model can be swapped, and compaction can fire early on your own thresholds instead of waiting for overflow. If the ICC call ever fails (for example, on a transcript too large for the extraction model's window), the middleware simply skips that turn and OpenClaw's native overflow-triggered compaction handles it on the next prompt exactly as it would for a vanilla install. You never lose coverage; you just lose the steering on the overflow edge case.
 
 **Legend:** ✅ supported &nbsp;·&nbsp; ❌ not present
 
 | Feature                                                                                                        |     OpenClaw built-in      |         Sapience Context Editing         |
 | -------------------------------------------------------------------------------------------------------------- | :------------------------: | :--------------------------------------: |
-| **Compaction pipeline** — summarize old messages into a dense summary                                          | ✅ two-stage chunk + merge |    ✅ single ICC call as the summary     |
+| **Compaction pipeline**: summarize old messages into a dense summary                                          | ✅ two-stage chunk + merge |    ✅ single ICC call as the summary     |
 | **Overflow-triggered compaction** (fires when next prompt exceeds context window)                              |             ✅             |                    ✅                    |
 | **Manual `/compact` command**                                                                                  |             ✅             |                    ✅                    |
-| **Identifier preservation** — UUIDs, hashes, URLs, file names kept verbatim                                    |             ✅             |                    ✅                    |
+| **Identifier preservation**: UUIDs, hashes, URLs, file names kept verbatim                                    |             ✅             |                    ✅                    |
 | **Early / proactive compaction** before hitting the context limit                                              |      ❌ reactive only      |          ✅ threshold-triggered          |
 | **Token-count threshold** for early compaction (default 80k, configurable)                                     |             ❌             |                    ✅                    |
 | **Message-count threshold** for early compaction (default 50, configurable)                                    |             ❌             |                    ✅                    |
-| **Trigger mode selector** — `token` / `message` / `both`                                                       |             ❌             |                    ✅                    |
+| **Trigger mode selector**: `token` / `message` / `both`                                                       |             ❌             |                    ✅                    |
 | **Keep N recent messages verbatim** before the compaction cut                                                  |    ❌ fixed chunk ratio    |           ✅ user-configurable           |
 | **Keep N recent tokens verbatim** before the compaction cut                                                    |   ❌ internal knob only    |           ✅ user-configurable           |
-| **Custom compaction prompt** — user-supplied instructions steer what the summary preserves                     |   ❌ fixed merge prompt    |    ✅ injected on the single ICC call    |
-| **Typed Entity Locks** — API endpoints, file paths, variables, constants, model names, code identifiers        |             ❌             |                    ✅                    |
-| **Conflict Resolution** — detects instruction overrides ("use X instead of Y") and locks the resolved value    |             ❌             |                    ✅                    |
-| **Priority Preservation** — `TODO` / `FIXME` / `REQUIREMENT` / `MUST` segments flagged for verbatim carry-over |             ❌             |                    ✅                    |
-| **Custom compaction model** — run summarization on a different model than the agent                            | ➕ raw `openclaw.json` key | ✅ first-class via `sai ctx model --set` |
+| **Custom compaction prompt**: user-supplied instructions steer what the summary preserves                     |   ❌ fixed merge prompt    |    ✅ injected on the single ICC call    |
+| **Typed Entity Locks**: API endpoints, file paths, variables, constants, model names, code identifiers        |             ❌             |                    ✅                    |
+| **Conflict Resolution**: detects instruction overrides ("use X instead of Y") and locks the resolved value    |             ❌             |                    ✅                    |
+| **Priority Preservation**: `TODO` / `FIXME` / `REQUIREMENT` / `MUST` segments flagged for verbatim carry-over |             ❌             |                    ✅                    |
+| **Custom compaction model**: run summarization on a different model than the agent                            | ➕ raw `openclaw.json` key | ✅ first-class via `sai ctx model --set` |
 | **Session pruning toggle** (cache-TTL for idle contexts)                                                       | ➕ raw `openclaw.json` key |   ✅ first-class via `sai ctx pruning`   |
 | **Interactive wizard** for all of the above                                                                    |             ❌             |              ✅ `sai init`               |
 | **Per-compaction audit trail** (JSONL: entities, conflicts, priorities, instruction hash)                      |             ❌             |                    ✅                    |
@@ -343,35 +343,35 @@ Incoming Request
 | **Complex**   | Architecture decisions, complex refactors  | GPT-4, Claude Opus         |
 | **Reasoning** | Multi-step planning, novel problem solving | o1, Claude Opus (extended) |
 
-##### Features — vs. Manifest
+##### Features vs. Manifest
 
-[Manifest](https://github.com/mnfst/manifest) is the closest comparable complexity-based model router — both share the same 23-dimension scoring core derived from the same lineage. The two target different deployment models: Manifest ships as a Docker service with a multi-tenant web dashboard and Postgres backend; Sapience Model Routing is an OpenClaw plugin running on the developer's machine with a local JSON config and CLI. The table below focuses on what Sapience adds on top of the shared scoring foundation — in particular **per-session model pinning** and **auto prompt-cache marker injection**, which compound to keep the provider's cached prefix warm across every turn of a pinned session.
+[Manifest](https://github.com/mnfst/manifest) is the closest comparable complexity-based model router, both share the same 23-dimension scoring core derived from the same lineage. The two target different deployment models: Manifest ships as a Docker service with a multi-tenant web dashboard and Postgres backend; Sapience Model Routing is an OpenClaw plugin running on the developer's machine with a local JSON config and CLI. The table below focuses on what Sapience adds on top of the shared scoring foundation, in particular **per-session model pinning** and **auto prompt-cache marker injection**, which compound to keep the provider's cached prefix warm across every turn of a pinned session.
 
 **Legend:** ✅ supported &nbsp;·&nbsp; ❌ not present
 
 | Feature                                                                                                                                                          |                        Manifest                        |                                Sapience Model Routing                                 |
 | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | :----------------------------------------------------: | :-----------------------------------------------------------------------------------: |
-| **23-dimension scorer** — Aho-Corasick trie, density clustering, sigmoid (k=8) with 0.45 ambiguity threshold, four-tier boundaries                               |                       ✅ parity                        |                                       ✅ parity                                       |
-| **Session momentum** — length-weighted blend of the last 5 tier decisions                                                                                        |                           ✅                           |                                          ✅                                           |
-| **Request deduplication** — concurrent retries / double-clicks share one upstream call (30s window)                                                              |               ✅ trace-id / token-based                |                            ✅ SHA-256 inflight + completed                            |
-| **Capability-filtered fallback chain** — filters by tool support, vision, context window, exclusions                                                             |                           ✅                           |                                   ✅ max 5 per tier                                   |
-| **Native provider adapters** — OpenAI / Anthropic / Google with SSE streaming conversion                                                                         |           ✅ (+ ChatGPT Codex subscription)            |                                          ✅                                           |
-| **Hard overrides** — reasoning keyword, short-message, tool-floor, large-context                                                                                 |                     ✅ 4 overrides                     | ✅ 6 overrides (+ structured-output floor + session-startup `/new` `/reset` → SIMPLE) |
-| **Multilingual keywords** — 9 languages, 1,500+ keywords across all 14 keyword dimensions                                                                        |                    ❌ English only                     |                                          ✅                                           |
-| **Routing profiles** — `eco` / `premium` / `agentic` switch the whole fallback chain per request, each with its own per-tier model map                          |              ❌ single deterministic map               |                                          ✅                                           |
-| **Model pinning** — the same session keeps the same model across every turn, with auto-release on complexity escalation                                          |                 ❌ tier-only momentum                  |                            ✅ per-session high-water mark                             |
-| **Three-strike escalation** — user retries an identical request 3× → auto-bump to next tier                                                                      |                           ❌                           |                                          ✅                                           |
-| **Auto cache-marker injection** — Anthropic `cache_control` on last system block + last tool, Google `cachedContent` token passthrough                           |                   ✅ Anthropic only                    |                                 ✅ Anthropic + Google                                 |
-| **Session-pinned prompt caching** — pinning + injection compound so the provider's cached prefix survives across turns (up to 90% off cached input on Anthropic) | ❌ no pinning → prefix drops whenever the model drifts |                                          ✅                                           |
-| **Deterministic response cache** — LRU for `temperature=0` non-streaming requests (bypasses the provider entirely on repeat identical prompts)                   |                           ❌                           |                            ✅ opt-in, 200 entries / 10 min                            |
-| **Daily cost alerts** — warn / critical thresholds that fire once per day on top of a 90-day ledger                                                              |         ❌ notifications exist, no budget caps         |                     ✅ `$5` warn / `$20` critical (configurable)                      |
-| **Per-step audit log** — request-id-scoped JSONL trace of every routing decision                                                                                 |             Postgres `agent_message` rows              |                                    ✅ local JSONL                                     |
+| **23-dimension scorer**: Aho-Corasick trie, density clustering, sigmoid (k=8) with 0.45 ambiguity threshold, four-tier boundaries                               |                       ✅ parity                        |                                       ✅ parity                                       |
+| **Session momentum**: length-weighted blend of the last 5 tier decisions                                                                                        |                           ✅                           |                                          ✅                                           |
+| **Request deduplication**: concurrent retries / double-clicks share one upstream call (30s window)                                                              |               ✅ trace-id / token-based                |                            ✅ SHA-256 inflight + completed                            |
+| **Capability-filtered fallback chain**: filters by tool support, vision, context window, exclusions                                                             |                           ✅                           |                                   ✅ max 5 per tier                                   |
+| **Native provider adapters**: OpenAI / Anthropic / Google with SSE streaming conversion                                                                         |           ✅ (+ ChatGPT Codex subscription)            |                                          ✅                                           |
+| **Hard overrides**: reasoning keyword, short-message, tool-floor, large-context                                                                                 |                     ✅ 4 overrides                     | ✅ 6 overrides (+ structured-output floor + session-startup `/new` `/reset` → SIMPLE) |
+| **Multilingual keywords**: 9 languages, 1,500+ keywords across all 14 keyword dimensions                                                                        |                    ❌ English only                     |                                          ✅                                           |
+| **Routing profiles**: `eco` / `premium` / `agentic` switch the whole fallback chain per request, each with its own per-tier model map                          |              ❌ single deterministic map               |                                          ✅                                           |
+| **Model pinning**: the same session keeps the same model across every turn, with auto-release on complexity escalation                                          |                 ❌ tier-only momentum                  |                            ✅ per-session high-water mark                             |
+| **Three-strike escalation**: user retries an identical request 3× → auto-bump to next tier                                                                      |                           ❌                           |                                          ✅                                           |
+| **Auto cache-marker injection**: Anthropic `cache_control` on last system block + last tool, Google `cachedContent` token passthrough                           |                   ✅ Anthropic only                    |                                 ✅ Anthropic + Google                                 |
+| **Session-pinned prompt caching**: pinning + injection compound so the provider's cached prefix survives across turns (up to 90% off cached input on Anthropic) | ❌ no pinning → prefix drops whenever the model drifts |                                          ✅                                           |
+| **Deterministic response cache**: LRU for `temperature=0` non-streaming requests (bypasses the provider entirely on repeat identical prompts)                   |                           ❌                           |                            ✅ opt-in, 200 entries / 10 min                            |
+| **Daily cost alerts**: warn / critical thresholds that fire once per day on top of a 90-day ledger                                                              |         ❌ notifications exist, no budget caps         |                     ✅ `$5` warn / `$20` critical (configurable)                      |
+| **Per-step audit log**: request-id-scoped JSONL trace of every routing decision                                                                                 |             Postgres `agent_message` rows              |                                    ✅ local JSONL                                     |
 | **Config hot-reload** (`sapience-ai-suite.json`)                                                                                                                 |                  ❌ restart required                   |                            ✅ `fs.watchFile`, 2s debounce                             |
-| **Plugin hook system** — `onBeforeScore` / `onAfterScore` / `onBeforeForward` / `onAfterForward`                                                                 |                           ❌                           |                                      ✅ 4 hooks                                       |
-| **Full CLI** — `sai router stats / config / tiers / test / exclude / models / reset`                                                                             |                           ❌                           |                                          ✅                                           |
-| **Interactive setup wizard** — profile + tier customization + port + live catalog pull                                                                           |                  Web dashboard signup                  |                                     ✅ `sai init`                                     |
-| **Specificity routing** — task-type categories (coding / vision / trading / …) override complexity tier                                                          |                    ✅ 9 categories                     |                                          ❌                                           |
-| **Subscription OAuth** — ChatGPT Plus, Claude Max, MiniMax, GitHub Copilot                                                                                       |                           ✅                           |                                   ❌ API keys only                                    |
+| **Plugin hook system**: `onBeforeScore` / `onAfterScore` / `onBeforeForward` / `onAfterForward`                                                                 |                           ❌                           |                                      ✅ 4 hooks                                       |
+| **Full CLI**: `sai router stats / config / tiers / test / exclude / models / reset`                                                                             |                           ❌                           |                                          ✅                                           |
+| **Interactive setup wizard**: profile + tier customization + port + live catalog pull                                                                           |                  Web dashboard signup                  |                                     ✅ `sai init`                                     |
+| **Specificity routing**: task-type categories (coding / vision / trading / …) override complexity tier                                                          |                    ✅ 9 categories                     |                                          ❌                                           |
+| **Subscription OAuth**: ChatGPT Plus, Claude Max, MiniMax, GitHub Copilot                                                                                       |                           ✅                           |                                   ❌ API keys only                                    |
 
 ##### CLI
 
@@ -396,7 +396,7 @@ sai router reset       # Reset cost history / session state
 
 ##### Why It Exists
 
-Prompt injection is the #1 attack vector against AI agents. A single malicious instruction hidden in a document, email, or web page can hijack your agent's behavior — making it exfiltrate secrets, delete data, or execute arbitrary commands. Guardrail catches these attacks at multiple detection layers before they can cause harm.
+Prompt injection is the #1 attack vector against AI agents. A single malicious instruction hidden in a document, email, or web page can hijack your agent's behavior, making it exfiltrate secrets, delete data, or execute arbitrary commands. Guardrail catches these attacks at multiple detection layers before they can cause harm.
 
 ##### Detection Layers
 
@@ -407,7 +407,7 @@ Prompt injection is the #1 attack vector against AI agents. A single malicious i
 | **Heuristic Scanner**  | Behavioral analysis    | Unusual request patterns, multi-step attacks   |
 | **Entropy Analyzer**   | Randomness detection   | Encoded payloads, obfuscated data exfiltration |
 | **Unicode Normalizer** | Canonicalization       | Unicode escape attacks, homoglyph substitution |
-| **OpenAI Moderation API** | ML content classifier (external) | Violence, hate, sexual, self-harm, illicit content — result cached at `before_agent_start`, severity-tiered enforcement at `before_message_write` (default: rewrite on `HIGH` + `CRITICAL`; `MEDIUM` is audit-only) |
+| **OpenAI Moderation API** | ML content classifier (external) | Violence, hate, sexual, self-harm, illicit content, result cached at `before_agent_start`, severity-tiered enforcement at `before_message_write` (default: rewrite on `HIGH` + `CRITICAL`; `MEDIUM` is audit-only) |
 
 ##### Guard Modules
 
@@ -416,22 +416,22 @@ Prompt injection is the #1 attack vector against AI agents. A single malicious i
 | **Sensitive Paths**      | Blocks access to `~/.ssh`, `~/.aws`, `/etc/passwd`, `.env` files |
 | **Egress Control**       | Prevents unauthorized data transmission to external endpoints    |
 | **Destructive Commands** | Catches `rm -rf`, `DROP TABLE`, `kill -9`, and similar patterns  |
-| **Content Moderation**   | OpenAI Moderation API check on incoming prompts — flags violence, hate, sexual, self-harm, illicit content (async → sync cache bridge; severity-tiered via `moderation.rewriteThreshold`, default `HIGH`) |
+| **Content Moderation**   | OpenAI Moderation API check on incoming prompts, flags violence, hate, sexual, self-harm, illicit content (async → sync cache bridge; severity-tiered via `moderation.rewriteThreshold`, default `HIGH`) |
 | **Role Impersonation**   | Detects attempts to masquerade as system/admin roles             |
 | **Canary Tracker**       | Honeypot tokens that trigger alerts if exposed in output         |
 | **Output Scrubber**      | Removes middleware metadata from agent responses                 |
 
 ##### Key Features
 
-- **Input + output scanning** — Covers both prompt injection and data leakage
-- **Configurable actions** — `BLOCK`, `WARN`, `REDACT` per rule
-- **Confidence filtering** — Adjustable sensitivity to reduce false positives
-- **Dry-run mode** — Log detections without blocking (for tuning)
-- **Custom patterns** — Add your own regex rules for domain-specific threats
+- **Input + output scanning**: Covers both prompt injection and data leakage
+- **Configurable actions**: `BLOCK`, `WARN`, `REDACT` per rule
+- **Confidence filtering**: Adjustable sensitivity to reduce false positives
+- **Dry-run mode**: Log detections without blocking (for tuning)
+- **Custom patterns**: Add your own regex rules for domain-specific threats
 
-##### Features — vs. OpenClaw Shield & OpenGuardrails
+##### Features vs. OpenClaw Shield & OpenGuardrails
 
-The two closest comparables are [**OpenClaw Shield**](https://github.com/knostic/openclaw-shield) (Knostic) — a lightweight OpenClaw plugin with five independently-toggleable policy layers, including an advisory "security gate" tool that relies on the agent obeying injected instructions — and [**OpenGuardrails / MoltGuard**](https://github.com/OpenGuardrails) — a full-stack platform with an agent-side plugin talking to a hosted Core service that runs a 10-scanner content model and a behavioral rule engine over tool-call sequences. Sapience Guardrail takes a different stance from both: **everything runs in-process on OpenClaw's native hooks**, and the `before_message_write` hook **actually rewrites the persisted transcript** so the LLM can never see the pre-redacted content — not just on the next turn, but on the current one. The rows below focus on the capabilities that actually differ; shared basics (regex scanning, OpenClaw plugin integration, PII redaction) are omitted.
+The two closest comparables are [**OpenClaw Shield**](https://github.com/knostic/openclaw-shield) (Knostic), a lightweight OpenClaw plugin with five independently-toggleable policy layers, including an advisory "security gate" tool that relies on the agent obeying injected instructions, and [**OpenGuardrails / MoltGuard**](https://github.com/OpenGuardrails), a full-stack platform with an agent-side plugin talking to a hosted Core service that runs a 10-scanner content model and a behavioral rule engine over tool-call sequences. Sapience Guardrail takes a different stance from both: **everything runs in-process on OpenClaw's native hooks**, and the `before_message_write` hook **actually rewrites the persisted transcript** so the LLM can never see the pre-redacted content, not just on the next turn, but on the current one. The rows below focus on the capabilities that actually differ; shared basics (regex scanning, OpenClaw plugin integration, PII redaction) are omitted.
 
 **Legend:** ✅ supported &nbsp;·&nbsp; ⚠️ partial &nbsp;·&nbsp; ❌ not present
 
@@ -439,7 +439,7 @@ The two closest comparables are [**OpenClaw Shield**](https://github.com/knostic
 | ------------------------------------------------------------------------------------------------------------------ | :---------------: | :-----------------------: | :----------------------------------------------------------------------------: |
 | **Prompt injection regex / pattern scanner**                                                                       |        ✅         |   ✅ (hosted Core S01)    |                                ✅ (21 patterns)                                |
 | **Heuristic / Shannon-entropy detector** for obfuscated payloads                                                   |        ❌         |            ❌             |                         ✅ (≥ 4.0 on 20+ char tokens)                          |
-| **Unicode NFKC normalization** before scan — homoglyph + zero-width + soft hyphen                                  |        ❌         |            ❌             |                                       ✅                                       |
+| **Unicode NFKC normalization** before scan, homoglyph + zero-width + soft hyphen                                  |        ❌         |            ❌             |                                       ✅                                       |
 | **External moderation API integration** (OpenAI Moderation, Perspective, …)                                        |        ❌         | ⚠️ gateway sanitizer only |                ✅ OpenAI Moderation, async → sync cache bridge                 |
 | **Sensitive file path blocking** (`.ssh`, `.env`, `.aws/credentials`, …)                                           |  ✅ 18 patterns   |            ❌             |                      ✅ 52 patterns + symlink resolution                       |
 | **Outbound domain allowlist** (default-deny)                                                                       |        ❌         |            ❌             |              ✅ 25 allowed (npm, PyPI, GitHub, AWS, Cloudflare…)               |
@@ -448,11 +448,11 @@ The two closest comparables are [**OpenClaw Shield**](https://github.com/knostic
 | **Role-impersonation / ChatML / fake `[SYSTEM]` neutralization**                                                   |        ❌         |            ❌             |             ✅ 16 patterns incl. Llama markers & tool-output tags              |
 | **Canary / leakback re-redaction** (re-detect previously-redacted content)                                         |        ❌         |            ❌             |                 ✅ SHA-256 ring buffer, whitespace-normalized                  |
 | **Actual message rewrite that persists to transcript** (vs log-only or post-persist redaction)                     |        ❌         |            ❌             | ✅ `before_message_write` returns `{ message }` per OpenClaw 2026.4.x contract |
-| **Async → sync cache bridge** — external API check in `before_agent_start`, severity-tiered rewrite in sync `before_message_write` (configurable threshold) |        ❌         |            ❌             |                                       ✅                                       |
+| **Async → sync cache bridge**: external API check in `before_agent_start`, severity-tiered rewrite in sync `before_message_write` (configurable threshold) |        ❌         |            ❌             |                                       ✅                                       |
 | **Behavioral rule engine over tool-call sequences** (e.g. file read → external write)                              |        ❌         |      ✅ hosted Core       |                                       ❌                                       |
 | **Advisory "security gate" LLM-policy tool** the agent is prompted to call                                         |       ✅ L5       |            ❌             |                                       ❌                                       |
 | **Dry-run / shadow mode** (log without blocking)                                                                   |        ✅         |        ⚠️ unclear         |                                       ✅                                       |
-| **Per-decision JSONL audit log** — timestamp, module, severity, sessionKey, agentId                                |        ❌         |      ✅ (hosted DB)       |                              ✅ local append-only                              |
+| **Per-decision JSONL audit log**: timestamp, module, severity, sessionKey, agentId                                |        ❌         |      ✅ (hosted DB)       |                              ✅ local append-only                              |
 | **Full CLI surface** for runtime config                                                                            | ❌ JSON edit only | ✅ `/og_*` slash commands |                              ✅ `sai guardrail …`                              |
 | **Web dashboard**                                                                                                  |        ❌         |    ✅ localhost:53668     |                                  ❌ (planned)                                  |
 | **Runs fully in-process** (no external service dependency)                                                         |        ✅         |   ❌ requires Core API    |                                       ✅                                       |
@@ -460,28 +460,28 @@ The two closest comparables are [**OpenClaw Shield**](https://github.com/knostic
 
 **What's genuinely unique to each**
 
-- **OpenClaw Shield** — per-layer toggles (L1–L5) so you can ship a degraded config when a host lacks a given hook; advisory L5 gate relies on the agent obeying injected policy rather than host enforcement.
-- **OpenGuardrails / MoltGuard** — hosted behavioral rule engine that catches multi-turn attack patterns (credential read → network write), a 10-scanner content model spanning NSFW / MCP poisoning / off-topic drift, and a managed dashboard with a quota system.
-- **Sapience Guardrail** — synchronous transcript rewrite so the LLM never sees pre-redacted content; Unicode NFKC + homoglyph + zero-width normalization pre-scan; entropy-based obfuscation detection; full-depth L2 stack (sensitive-paths + egress allowlist + private-IP SSRF + destructive commands) firing before any tool executes; confidence-filtered matching to suppress rephrasing false positives.
+- **OpenClaw Shield**: per-layer toggles (L1–L5) so you can ship a degraded config when a host lacks a given hook; advisory L5 gate relies on the agent obeying injected policy rather than host enforcement.
+- **OpenGuardrails / MoltGuard**: hosted behavioral rule engine that catches multi-turn attack patterns (credential read → network write), a 10-scanner content model spanning NSFW / MCP poisoning / off-topic drift, and a managed dashboard with a quota system.
+- **Sapience Guardrail**: synchronous transcript rewrite so the LLM never sees pre-redacted content; Unicode NFKC + homoglyph + zero-width normalization pre-scan; entropy-based obfuscation detection; full-depth L2 stack (sensitive-paths + egress allowlist + private-IP SSRF + destructive commands) firing before any tool executes; confidence-filtered matching to suppress rephrasing false positives.
 
 ##### What We Adopted From Each
 
-Sapience Guardrail did not emerge in a vacuum. Both comparables contributed foundational ideas we built on — we name them explicitly below.
+Sapience Guardrail did not emerge in a vacuum. Both comparables contributed foundational ideas we built on. We name them explicitly below.
 
 | Capability | OpenGuardrails | OpenClaw Shield | Sapience Guardrail |
 |---|:-:|:-:|:-:|
-| **Regex rule engine with category taxonomy** (injection / PII / suspicious) | Adopted from | — | Extended: 53 rules across 3 engines (regex + prefix + heuristic) |
-| **Confidence tiers** (HIGH / MEDIUM / LOW) | Adopted from | — | Extended: cross-category *and* same-category multi-match required for MEDIUM |
-| **L2 tool-call interception** via `before_tool_call` hook | — | Adopted from | Extended: 6 guards (sensitive-paths, egress, destructive, shell-indirection, pre-read, param scan) |
-| **File path blocklist** concept | — | Adopted from | Extended: 52 patterns + allowlist overrides + symlink resolution |
-| **L3 transcript scanning** via `before_message_write` | — | — | Original — closes the gap Shield left open (tool results, file content entering *after* execution) |
-| **L1 prompt-guard policy injection** into system prompt | — | — | Original — agent learns *what* is protected, never *how* |
-| **Egress / SSRF prevention** (domain allowlist, IPv4+IPv6 private ranges, `169.254.169.254`) | — | — | Original |
-| **Canary tracking / leakback re-redaction** (SHA-256 ring buffer) | — | — | Original |
-| **Role impersonation** (ChatML, Llama, fake `[SYSTEM]`, tool-output tag injection — 16 patterns) | — | — | Original |
-| **Agent interrogation defense** (defense-enumeration detection) | — | — | Original |
-| **OpenAI Moderation API integration** with async → sync cache bridge | — | — | Original |
-| **CLI management surface** (`sai guardrail …`) | — | — | Original |
+| **Regex rule engine with category taxonomy** (injection / PII / suspicious) | Adopted from |  | Extended: 53 rules across 3 engines (regex + prefix + heuristic) |
+| **Confidence tiers** (HIGH / MEDIUM / LOW) | Adopted from |  | Extended: cross-category *and* same-category multi-match required for MEDIUM |
+| **L2 tool-call interception** via `before_tool_call` hook |  | Adopted from | Extended: 6 guards (sensitive-paths, egress, destructive, shell-indirection, pre-read, param scan) |
+| **File path blocklist** concept |  | Adopted from | Extended: 52 patterns + allowlist overrides + symlink resolution |
+| **L3 transcript scanning** via `before_message_write` |  |  | Original. Closes the gap Shield left open (tool results, file content entering *after* execution) |
+| **L1 prompt-guard policy injection** into system prompt |  |  | Original. Agent learns *what* is protected, never *how* |
+| **Egress / SSRF prevention** (domain allowlist, IPv4+IPv6 private ranges, `169.254.169.254`) |  |  | Original |
+| **Canary tracking / leakback re-redaction** (SHA-256 ring buffer) |  |  | Original |
+| **Role impersonation** (ChatML, Llama, fake `[SYSTEM]`, tool-output tag injection, 16 patterns) |  |  | Original |
+| **Agent interrogation defense** (defense-enumeration detection) |  |  | Original |
+| **OpenAI Moderation API integration** with async → sync cache bridge |  |  | Original |
+| **CLI management surface** (`sai guardrail …`) |  |  | Original |
 
 **The one thing neither comparable does:** combine pre-execution interception *with* post-execution transcript scanning. OpenGuardrails scans text but can't block tools. OpenClaw Shield blocks tools but can't scan transcripts. Sapience does both in the same pipeline.
 
@@ -501,7 +501,7 @@ Sapience Guardrail did not emerge in a vacuum. Both comparables contributed foun
 
 The middleware's on/off switch is the plugin-level flag (`plugin_config.middlewares.guardrail` in `sapience-ai-suite.json`, managed via the dashboard or `sai init`), not a field inside this config. The sub-feature `enabled` flags above (sensitivePaths, egressControl, destructiveCommands, outputScrubber) toggle individual guards *within* the guardrail middleware when it's already running. **Output scrubber is double-gated**: the master Guardrail toggle must be on AND `outputScrubber.enabled` must be `true`. Both default to `false` so a fresh install ships with neither active — opt in via the dashboard's Guardrail → Output tab or `sai guardrail output toggle enable`.
 
-`moderation.rewriteThreshold` controls the severity bar for the async → sync cache bridge. Accepts `MEDIUM`, `HIGH`, or `CRITICAL` — default is `HIGH`. Flags at or above the threshold trigger a transcript rewrite in `before_message_write` (hard block); flags below are logged audit-only and pass through so the LLM's own safety layer can handle the gray zone without a synthetic `[GUARDRAIL]` marker replacing the user's prompt. Set to `MEDIUM` for maximum strictness, or `CRITICAL` to only hard-block the most severe categories.
+`moderation.rewriteThreshold` controls the severity bar for the async → sync cache bridge. Accepts `MEDIUM`, `HIGH`, or `CRITICAL`. Default is `HIGH`. Flags at or above the threshold trigger a transcript rewrite in `before_message_write` (hard block); flags below are logged audit-only and pass through so the LLM's own safety layer can handle the gray zone without a synthetic `[GUARDRAIL]` marker replacing the user's prompt. Set to `MEDIUM` for maximum strictness, or `CRITICAL` to only hard-block the most severe categories.
 
 ##### CLI
 
@@ -520,7 +520,7 @@ sai guardrail config                      # Print resolved config
 sai guardrail reset                       # Reset to defaults
 ```
 
-> **Note:** `moderation.rewriteThreshold` is currently file-level only — edit the `guardrail` key in `sapience-ai-suite.json`. A dedicated CLI subcommand is not yet wired up.
+> **Note:** `moderation.rewriteThreshold` is currently file-level only. Edit the `guardrail` key in `sapience-ai-suite.json`. A dedicated CLI subcommand is not yet wired up.
 
 ---
 
@@ -532,7 +532,7 @@ sai guardrail reset                       # Reset to defaults
 
 ##### Why It Exists
 
-AI agents process everything in their context — including sensitive data users paste into conversations. Without a PII layer, an agent can inadvertently pass SSNs, API keys, or email addresses to external APIs, log them to files, or include them in shell commands. The PII Sanitizer intercepts tool calls and applies data loss prevention policies before execution.
+AI agents process everything in their context, including sensitive data users paste into conversations. Without a PII layer, an agent can inadvertently pass SSNs, API keys, or email addresses to external APIs, log them to files, or include them in shell commands. The PII Sanitizer intercepts tool calls and applies data loss prevention policies before execution.
 
 ##### Detection Patterns
 
@@ -556,11 +556,11 @@ AI agents process everything in their context — including sensitive data users
 
 ##### Key Features
 
-- **Recursive deep scanning** — Traverses nested objects, arrays, and stringified JSON
-- **Shell argument parsing** — Extracts and scans literals from shell commands
-- **Field-level policies** — Different actions per PII type and severity
-- **Severity classification** — `LOW`, `MEDIUM`, `HIGH`, `CRITICAL`
-- **Integrates with HITL** — `ESCALATE` action routes to human approval
+- **Recursive deep scanning**: Traverses nested objects, arrays, and stringified JSON
+- **Shell argument parsing**: Extracts and scans literals from shell commands
+- **Field-level policies**: Different actions per PII type and severity
+- **Severity classification**: `LOW`, `MEDIUM`, `HIGH`, `CRITICAL`
+- **Integrates with HITL**: `ESCALATE` action routes to human approval
 
 ##### CLI
 
@@ -582,7 +582,7 @@ sai dlp policy-set <tool> <field> <action>      # Set scanning policy for a tool
 
 ##### Why It Exists
 
-An agent stuck in a loop can call the same tool hundreds of times in a single session — burning through API quotas, racking up costs, and producing garbage output. Tool Call Limits enforce hard boundaries on how many times each tool can be called, at both the session and request level.
+An agent stuck in a loop can call the same tool hundreds of times in a single session, burning through API quotas, racking up costs, and producing garbage output. Tool Call Limits enforce hard boundaries on how many times each tool can be called, at both the session and request level.
 
 ##### Enforcement Model
 
@@ -607,15 +607,15 @@ Tool Call Arrives
 
 ##### Key Features
 
-- **Two enforcement scopes** — Session-level and request-level budgets
-- **Soft + hard limits** — Warn before blocking
-- **Per-method granularity** — Different limits for `FileSystem.read` vs `Gmail.send`
-- **Rolling windows** — 24-hour configurable window for counter resets
-- **Session tracking** — Maps virtual session IDs to real session keys
+- **Two enforcement scopes**: Session-level and request-level budgets
+- **Soft + hard limits**: Warn before blocking
+- **Per-method granularity**: Different limits for `FileSystem.read` vs `Gmail.send`
+- **Rolling windows**: 24-hour configurable window for counter resets
+- **Session tracking**: Maps virtual session IDs to real session keys
 
 ##### vs. OpenClaw `tools.loopDetection`
 
-OpenClaw core ships a built-in `tools.loopDetection` guard that detects **degenerate call patterns** — same tool + same params repeated, known polling with no state change, ping-pong alternation — over a sliding window. It is **pattern-based** and disabled by default. Sapience Tool Call Limits is **budget-based**: it counts cumulative calls against a numeric quota. The two solve different failure modes and are designed to run together.
+OpenClaw core ships a built-in `tools.loopDetection` guard that detects **degenerate call patterns** (same tool + same params repeated, known polling with no state change, ping-pong alternation) over a sliding window. It is **pattern-based** and disabled by default. Sapience Tool Call Limits is **budget-based**: it counts cumulative calls against a numeric quota. The two solve different failure modes and are designed to run together.
 
 | Failure mode                                                        | OpenClaw loop detector | Sapience Limits |
 | ------------------------------------------------------------------- | :--------------------: | :-------------: |
@@ -628,11 +628,11 @@ OpenClaw core ships a built-in `tools.loopDetection` guard that detects **degene
 
 **Differentiators beyond pattern-vs-budget:**
 
-- **Dual enforcement scopes** — session (lifetime) *and* request (single turn) budgets evaluated on every call
-- **Per-module × per-method granularity** — `Gmail.send` has a different budget than `FileSystem.read`
-- **Soft + hard tiers** — warn before blocking, so operators see approach-to-limit
-- **Rolling 24h window** — counters reset automatically rather than requiring manual intervention
-- **Built-in observability** — `sai limits status` and the dashboard page expose live counters; OpenClaw's detector only logs when it fires
+- **Dual enforcement scopes**: session (lifetime) *and* request (single turn) budgets evaluated on every call
+- **Per-module × per-method granularity**: `Gmail.send` has a different budget than `FileSystem.read`
+- **Soft + hard tiers**: warn before blocking, so operators see approach-to-limit
+- **Rolling 24h window**: counters reset automatically rather than requiring manual intervention
+- **Built-in observability**: `sai limits status` and the dashboard page expose live counters; OpenClaw's detector only logs when it fires
 
 **Recommended setup:** enable both. OpenClaw's detector catches degenerate *shapes* cheap; Sapience Limits catches budget overruns the pattern detector can't see (distributed loops, cost blowups, request-level runaway).
 
@@ -712,10 +712,10 @@ openclaw plugins uninstall sapience-ai-suite
 openclaw gateway restart
 ```
 
-**Config and audit data are kept by default.** The on-disk config store at `~/.openclaw/sapience-ai-suite/` (HITL policies, model routes, guardrail rules, audit trail JSONL, MFA secrets) survives the uninstall — reinstalling later picks it back up automatically. To wipe it:
+**Config and audit data are kept by default.** The on-disk config store at `~/.openclaw/sapience-ai-suite/` (HITL policies, model routes, guardrail rules, audit trail JSONL, MFA secrets) survives the uninstall. Reinstalling later picks it back up automatically. To wipe it:
 
 ```bash
-# Only continue after user confirmation — this permanently removes audit logs, MFA secrets, and policies.
+# Only continue after user confirmation. This permanently removes audit logs, MFA secrets, and policies.
 rm -rf ~/.openclaw/sapience-ai-suite
 ```
 
@@ -755,7 +755,7 @@ That's the full embedding shape: import → construct → `initialize()` → reg
 
 ### Root Surface
 
-The root package only exposes cross-cutting framework concerns — pipeline runner, base contract, plugin lifecycle. Middleware classes live under their own subpaths.
+The root package only exposes cross-cutting framework concerns: pipeline runner, base contract, plugin lifecycle. Middleware classes live under their own subpaths.
 
 ```ts
 import {
@@ -806,7 +806,7 @@ interface MiddlewareResult {
   block: boolean;
   reason?: string;
   modifiedParams?: Record<string, unknown>;
-  /** First-class "force human approval" signal — guardrail WARN and PII
+  /** First-class "force human approval" signal, guardrail WARN and PII
    *  ESCALATE both surface here so orchestrators read one consistent field. */
   escalate?: boolean;
   escalateReason?: string;
@@ -842,11 +842,11 @@ DEFAULTS  <  inline config  <  sapience-ai-suite.json disk overlay
 Three things to know about how this plays out for embedded consumers:
 
 1. **The disk overlay is optional but always wins when present.** If `~/.openclaw/sapience-ai-suite/sapience-ai-suite.json` exists (because the user ran `sai init`, or the dashboard wrote to it, or another instance saved earlier), its values shadow whatever you pass inline. Apps that want fully reproducible config should ensure the file isn't on disk (see *Hermetic embedding* below).
-2. **The plugin runtime always passes `{}`** (or `{ pluginApi }` for Context Editing). That's why plugin behavior is "defaults + disk, nothing else" — there's no inline layer to compete with the dashboard's writes.
+2. **The plugin runtime always passes `{}`** (or `{ pluginApi }` for Context Editing). That's why plugin behavior is "defaults + disk, nothing else". There's no inline layer to compete with the dashboard's writes.
 3. **Three configuration paths.** Each middleware supports the same three ways to set its config:
-   - **Inline at `initialize(config)`** — pass a partial of the middleware's config type. Applied on top of defaults, below the disk overlay.
-   - **In-process `updateConfig(partial)`** — patches the running instance in memory; **no disk I/O**, no cross-process visibility. Best for embedded apps that don't want to touch `sapience-ai-suite.json`.
-   - **Disk-backed `Store.update()` / `Store.save()` + reload** — persists to `sapience-ai-suite.json`, survives restarts, propagates to other plugin instances watching the same file.
+   - **Inline at `initialize(config)`**: pass a partial of the middleware's config type. Applied on top of defaults, below the disk overlay.
+   - **In-process `updateConfig(partial)`**: patches the running instance in memory; **no disk I/O**, no cross-process visibility. Best for embedded apps that don't want to touch `sapience-ai-suite.json`.
+   - **Disk-backed `Store.update()` / `Store.save()` + reload**: persists to `sapience-ai-suite.json`, survives restarts, propagates to other plugin instances watching the same file.
 
 ### Best Practices
 
@@ -854,30 +854,30 @@ The five callouts below apply to all six middlewares; they're the things that bi
 
 #### Hermetic Embedding
 
-The disk overlay is what lets the dashboard and `sai` CLI manage the plugin transparently — but for an embedded app that ships its own config, it's a footgun: a `sapience-ai-suite.json` left on the deployment host will silently override your inline `initialize()` values. Two ways out:
+The disk overlay is what lets the dashboard and `sai` CLI manage the plugin transparently, but for an embedded app that ships its own config, it's a footgun: a `sapience-ai-suite.json` left on the deployment host will silently override your inline `initialize()` values. Two ways out:
 
-**Option 1 — No file on disk.** If `sapience-ai-suite.json` doesn't exist on the deployment machine, there's no overlay → inline wins fully:
+**Option 1: No file on disk.** If `sapience-ai-suite.json` doesn't exist on the deployment machine, there's no overlay → inline wins fully:
 
 ```ts
 await mw.initialize({ dryRunMode: true });   // applies; nothing shadowing it
 ```
 
-**Option 2 — `updateConfig` after init.** Patches the resolved config in memory, bypassing the disk overlay regardless of whether the file exists:
+**Option 2: `updateConfig` after init.** Patches the resolved config in memory, bypassing the disk overlay regardless of whether the file exists:
 
 ```ts
 await mw.initialize({});                     // pulls disk if any
 mw.updateConfig({ dryRunMode: true });       // overrides disk in memory
 ```
 
-Pick option 2 if you don't know whether a `sapience-ai-suite.json` exists on the deployment machine — it works in both modes. The MR proxy port and a few other "constructed-at-start" fields are special-cased; see the per-middleware notes.
+Pick option 2 if you don't know whether a `sapience-ai-suite.json` exists on the deployment machine. It works in both modes. The MR proxy port and a few other "constructed-at-start" fields are special-cased; see the per-middleware notes.
 
 #### `updateConfig` for In-Process Patches
 
-`mw.updateConfig(partial)` is the primary in-process knob. It patches `this.config` directly, no I/O, no file-watcher event. Use it whenever you want a runtime change that **only** the current process sees — typically because either (a) you're embedded and don't want to touch disk, or (b) you want to override a disk-sourced value just for this instance.
+`mw.updateConfig(partial)` is the primary in-process knob. It patches `this.config` directly, no I/O, no file-watcher event. Use it whenever you want a runtime change that **only** the current process sees, typically because either (a) you're embedded and don't want to touch disk, or (b) you want to override a disk-sourced value just for this instance.
 
 #### Shallow Merge
 
-Both `Store.update()` and `mw.updateConfig(partial)` shallow-merge **at the top level only**. Passing a partial like `{ modules: { ... } }` replaces the entire `modules` map — wiping siblings. For nested patches, read the current value and spread the sub-map yourself:
+Both `Store.update()` and `mw.updateConfig(partial)` shallow-merge **at the top level only**. Passing a partial like `{ modules: { ... } }` replaces the entire `modules` map, wiping siblings. For nested patches, read the current value and spread the sub-map yourself:
 
 ```ts
 const current = mw.getConfig();
@@ -888,19 +888,19 @@ The per-middleware sections below call out which top-level fields are nested obj
 
 #### Reload Semantics
 
-`reloadPolicy()` (HITL, PII) and `reloadConfig()` (CE, MR, Guardrail, TCL) re-read the disk overlay and re-merge it over the current in-memory state. In-process `updateConfig()` patches survive the reload for fields the disk doesn't set — but disk-set fields shadow them (same precedence as `initialize()`). Call `updateConfig()` again post-reload to re-assert an override.
+`reloadPolicy()` (HITL, PII) and `reloadConfig()` (CE, MR, Guardrail, TCL) re-read the disk overlay and re-merge it over the current in-memory state. In-process `updateConfig()` patches survive the reload for fields the disk doesn't set, but disk-set fields shadow them (same precedence as `initialize()`). Call `updateConfig()` again post-reload to re-assert an override.
 
 #### Dumb-Delegator Pattern
 
-Once `initialize()` is called, every lifecycle method just runs — no internal enabled gate. **Disable a middleware in your own pipeline by simply not calling its methods**; the plugin runtime gates each middleware upstream via `Store.isPluginEnabled()`. `getStatus().enabled` is hardcoded to `true` once initialized.
+Once `initialize()` is called, every lifecycle method just runs, no internal enabled gate. **Disable a middleware in your own pipeline by simply not calling its methods**; the plugin runtime gates each middleware upstream via `Store.isPluginEnabled()`. `getStatus().enabled` is hardcoded to `true` once initialized.
 
 **MR is the one exception.** Its `enabled` field tracks whether the embedded HTTP proxy is bound to a port, so `mr.initialize({ enabled: false })` is a meaningful "build config but don't start proxy" mode (used for in-process `pickTier`-only embedding), and `mr.getStatus().enabled` reflects the actual proxy state.
 
 ### Middlewares
 
-Every middleware ships a self-contained programmatic surface under its own subpath. The patterns are deliberately uniform — construct → `await initialize(config?)` → call lifecycle methods directly or hand the instance to `MiddlewareRegistry.register()`. Block / escalate / pass uses one shape: `MiddlewareResult.block`, `escalate`, `escalateReason`, `modifiedParams`. See the [base contract](#root-surface) above.
+Every middleware ships a self-contained programmatic surface under its own subpath. The patterns are deliberately uniform: construct → `await initialize(config?)` → call lifecycle methods directly or hand the instance to `MiddlewareRegistry.register()`. Block / escalate / pass uses one shape: `MiddlewareResult.block`, `escalate`, `escalateReason`, `modifiedParams`. See the [base contract](#root-surface) above.
 
-Each middleware below also documents a **Standalone primitives** subsection — pure-function or single-class exports that let you skip the full middleware instance for tests, one-off classification, or building your own pipeline shape.
+Each middleware below also documents a **Standalone primitives** subsection, pure-function or single-class exports that let you skip the full middleware instance for tests, one-off classification, or building your own pipeline shape.
 
 Quick links: [HITL](#programmatic-hitl) · [Context Editing](#programmatic-context-editing) · [Model Routing](#programmatic-model-routing) · [Guardrail](#programmatic-guardrail) · [PII Sanitizer](#programmatic-pii-sanitizer) · [Tool Call Limit](#programmatic-tool-call-limit).
 
@@ -933,7 +933,7 @@ import {
 
 | Method | OpenClaw event | What it does |
 |---|---|---|
-| `beforeToolCall(ctx: MiddlewareContext)` | `before_tool_call` | Evaluates the call against the loaded `SecurityPolicy` via the underlying `Interceptor` — destructive-action classification, irreversibility scoring, memory-risk forecasting, browser-challenge detection, trust-rate limiting, and rule-based ALLOW/DENY/ASK matching. Returns `{ block: true, reason }` on DENY-or-failed-ASK, `{ block: false }` on ALLOW. |
+| `beforeToolCall(ctx: MiddlewareContext)` | `before_tool_call` | Evaluates the call against the loaded `SecurityPolicy` via the underlying `Interceptor`, destructive-action classification, irreversibility scoring, memory-risk forecasting, browser-challenge detection, trust-rate limiting, and rule-based ALLOW/DENY/ASK matching. Returns `{ block: true, reason }` on DENY-or-failed-ASK, `{ block: false }` on ALLOW. |
 
 Disk overlay at `sapience-ai-suite.json[hitl.policy]`. Plugin gating: `_hitl.isPluginEnabled()` (proxies through `HitlMiddleware` to its underlying Interceptor). Watch out for shallow-merge wholesale-replacement on the nested-object fields: `modules`, `systemThresholds`.
 
@@ -961,21 +961,21 @@ await PolicyStore.update({ defaultAction: 'DENY' });
 hitl.reloadPolicy();
 ```
 
-> **Two layers, two field names.** The OpenClaw `before_tool_call` hook contract (what `createToolCallHook` returns — `BeforeToolCallResult`) uses `blockReason`, because that's what the framework reads. The pipeline-level `MiddlewareResult` (what `HitlMiddleware.beforeToolCall` returns inside the `MiddlewareRegistry`) uses `reason`. Translation between the two happens at the plugin boundary in [src/plugin/index.ts](src/plugin/index.ts).
+> **Two layers, two field names.** The OpenClaw `before_tool_call` hook contract (what `createToolCallHook` returns, `BeforeToolCallResult`) uses `blockReason`, because that's what the framework reads. The pipeline-level `MiddlewareResult` (what `HitlMiddleware.beforeToolCall` returns inside the `MiddlewareRegistry`) uses `reason`. Translation between the two happens at the plugin boundary in [src/plugin/index.ts](src/plugin/index.ts).
 
 ##### Standalone Primitives
 
-If you don't want a `HitlMiddleware` instance at all, the risk-assessment building blocks are exported as free functions and small classes — same return shapes the middleware uses internally, but composable in your own pipeline:
+If you don't want a `HitlMiddleware` instance at all, the risk-assessment building blocks are exported as free functions and small classes, same return shapes the middleware uses internally, but composable in your own pipeline:
 
 | Export | What it gives you |
 |---|---|
-| `Interceptor` | The full ALLOW/DENY/ASK decision engine without the `Middleware`-interface wrapper. Construct with an inline policy and call `evaluate(event, context)` — what `HitlMiddleware` wraps internally. |
+| `Interceptor` | The full ALLOW/DENY/ASK decision engine without the `Middleware`-interface wrapper. Construct with an inline policy and call `evaluate(event, context)`, what `HitlMiddleware` wraps internally. |
 | `createToolCallHook(interceptor)` | Wires an `Interceptor` directly into OpenClaw's `before_tool_call` hook contract (returns `BeforeToolCallResult`), bypassing `MiddlewareRegistry`. |
 | `classifyDestructiveAction(toolName, params)` | Returns `{ severity: 'HIGH' \| 'CATASTROPHIC' \| null, reason }`. Useful for reporting / logging without enforcing. |
 | `scoreIrreversibility(toolName, params)` | Returns a 0–100 irreversibility score. The same scorer the ASK arbitrator uses to gate TOTP requirements. |
 | `MemoryRiskForecaster` | Class that simulates downstream memory contamination from a candidate write. Same forecaster used by ASK pre-filtering. |
 | `trustRateLimiter` | Singleton tracking trust-decay state across approvals. `getLevel()` / `recordDenial()` mirror what `Interceptor` calls. |
-| `DEFAULT_POLICY` | The shipped baseline `SecurityPolicy` — start here when authoring an inline override. |
+| `DEFAULT_POLICY` | The shipped baseline `SecurityPolicy`, start here when authoring an inline override. |
 
 ```ts
 import { Interceptor, createToolCallHook } from '@sapience-ai-corporation/openclaw-middleware-suite/hitl';
@@ -1027,7 +1027,7 @@ import {
 |---|---|---|
 | `beforeModelResolve(ctx)` | `before_model_resolve` | **The single load-bearing hook.** Fires before OpenClaw's SessionManager opens the JSONL. Walks the JSONL, sums per-turn assistant token usage into the per-session counter, evaluates adaptive triggers, and runs ICC + `appendCompaction` inline when the threshold is met. The current turn's LLM call sees compacted history. |
 
-Disk overlay at `sapience-ai-suite.json[context_editing][configOverrides]`. Plugin gating: `ContextEditingPolicyStore.isPluginEnabled()`. The `config` arg has one CE-specific purpose: pass OpenClaw's `pluginApi` here when running inside the plugin so ICC's LLM extraction can dispatch through it. **CE deep-merges the three nested sub-trees** `icc` / `pruning` / `compaction` (in `initialize`, `updateConfig`, and `reloadConfig`) so a partial like `{ icc: { messagesKeptBeforeCompaction: 5 } }` keeps `icc.customPrompt`, `icc.customSchema`, etc. intact — top-level fields shallow-merge as elsewhere in the suite.
+Disk overlay at `sapience-ai-suite.json[context_editing][configOverrides]`. Plugin gating: `ContextEditingPolicyStore.isPluginEnabled()`. The `config` arg has one CE-specific purpose: pass OpenClaw's `pluginApi` here when running inside the plugin so ICC's LLM extraction can dispatch through it. **CE deep-merges the three nested sub-trees** `icc` / `pruning` / `compaction` (in `initialize`, `updateConfig`, and `reloadConfig`) so a partial like `{ icc: { messagesKeptBeforeCompaction: 5 } }` keeps `icc.customPrompt`, `icc.customSchema`, etc. intact. Top-level fields shallow-merge as elsewhere in the suite.
 
 ```ts
 import { MiddlewareRegistry } from '@sapience-ai-corporation/openclaw-middleware-suite';
@@ -1048,7 +1048,7 @@ await ce.initialize({
     ...DEFAULT_CONTEXT_EDITING_CONFIG.icc,
     messagesKeptBeforeCompaction: 3,
   },
-  // pluginApi: <OpenClaw plugin API>  // omit when embedding standalone —
+  // pluginApi: <OpenClaw plugin API>  // omit when embedding standalone
   //                                    // ICC LLM calls will be skipped.
 });
 new MiddlewareRegistry().register(ce);
@@ -1062,18 +1062,18 @@ await ContextEditingPolicyStore.update({ triggerMode: 'token' });
 ce.reloadConfig();
 ```
 
-> **Two shapes.** `initialize(config)` takes the nested `ContextEditingConfig` (with `icc`, `pruning`, `compaction` subtrees) — this is what the middleware consumes at runtime. `ContextEditingPolicyStore` reads/writes the flat `ContextEditingPolicyData` shape that lives on disk (e.g. flat `pruningMode`/`ttl` instead of nested `pruning.mode`/`pruning.ttl`). The translation happens inside the middleware's `reloadConfig()` path, so you only see the flat shape when calling the store directly.
+> **Two shapes.** `initialize(config)` takes the nested `ContextEditingConfig` (with `icc`, `pruning`, `compaction` subtrees), this is what the middleware consumes at runtime. `ContextEditingPolicyStore` reads/writes the flat `ContextEditingPolicyData` shape that lives on disk (e.g. flat `pruningMode`/`ttl` instead of nested `pruning.mode`/`pruning.ttl`). The translation happens inside the middleware's `reloadConfig()` path, so you only see the flat shape when calling the store directly.
 
 ##### Standalone Primitives
 
-Context Editing is the most middleware-driven of the six — its trigger evaluation, scheduling, and ICC dispatch only make sense as a long-lived pipeline participant. Two exports are still useful standalone:
+Context Editing is the most middleware-driven of the six. Its trigger evaluation, scheduling, and ICC dispatch only make sense as a long-lived pipeline participant. Two exports are still useful standalone:
 
 | Export | What it gives you |
 |---|---|
 | `ContextEditingPolicyStore` | Direct read/write access to the on-disk `ContextEditingPolicyData` shape. Use to author the disk overlay from a setup script without spinning up the middleware. |
-| `DEFAULT_CONTEXT_EDITING_CONFIG` | The full nested defaults object — start point for inline configs (especially the `icc` sub-tree, which has many fields). |
+| `DEFAULT_CONTEXT_EDITING_CONFIG` | The full nested defaults object, start point for inline configs (especially the `icc` sub-tree, which has many fields). |
 
-If you need the ICC extraction itself outside the middleware (e.g. for offline transcript analysis), the dispatch path is private — open an issue describing the use case and we'll consider exposing it.
+If you need the ICC extraction itself outside the middleware (e.g. for offline transcript analysis), the dispatch path is private. Open an issue describing the use case and we'll consider exposing it.
 
 #### <a id="programmatic-model-routing"></a>Model Routing
 
@@ -1103,10 +1103,10 @@ import {
 
 **Two consumption modes.** Model Routing can be embedded in your app two ways depending on how you call your LLMs:
 
-1. **Embedded HTTP proxy** *(default)* — `initialize()` builds config and starts a localhost proxy on `port`. Point your existing OpenAI/Anthropic SDK at `http://127.0.0.1:{port}/v1/chat/completions` and routing happens transparently inside the proxy.
-2. **In-process scoring** — call `mr.pickTier(input)` directly to get the chosen tier + confidence + dimension breakdown without binding a port. Useful when you'd rather forward to your own provider client.
+1. **Embedded HTTP proxy** *(default)*. `initialize()` builds config and starts a localhost proxy on `port`. Point your existing OpenAI/Anthropic SDK at `http://127.0.0.1:{port}/v1/chat/completions` and routing happens transparently inside the proxy.
+2. **In-process scoring**: call `mr.pickTier(input)` directly to get the chosen tier + confidence + dimension breakdown without binding a port. Useful when you'd rather forward to your own provider client.
 
-Disk overlay at `sapience-ai-suite.json[model_routing]`. Watch out for shallow-merge wholesale-replacement on the nested-object fields: `tiersByProfile`, `tierOverridesByProfile`, `weightOverrides`, `boundaryOverrides`, `providerConfigs`. **API key fallback** — `targetApiKey` and per-provider keys fall back to environment variables (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`) when neither inline config nor disk overlay specifies them.
+Disk overlay at `sapience-ai-suite.json[model_routing]`. Watch out for shallow-merge wholesale-replacement on the nested-object fields: `tiersByProfile`, `tierOverridesByProfile`, `weightOverrides`, `boundaryOverrides`, `providerConfigs`. **API key fallback**: `targetApiKey` and per-provider keys fall back to environment variables (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`) when neither inline config nor disk overlay specifies them.
 
 ```ts
 import { MiddlewareRegistry } from '@sapience-ai-corporation/openclaw-middleware-suite';
@@ -1117,7 +1117,7 @@ import {
 
 const mr = new ModelRoutingMiddleware();
 
-// Path 1a — Mode 1 (embedded proxy, default): inline at initialize.
+// Path 1a: Mode 1 (embedded proxy, default), inline at initialize.
 await mr.initialize({
   enabled: true,                     // auto-start proxy (default)
   port: 9000,
@@ -1127,12 +1127,12 @@ await mr.initialize({
   defaultProfile: 'eco',             // 'eco' | 'premium' | 'agentic'
   targetApiKey: process.env.OPENAI_API_KEY,
   // tiersByProfile (per-profile tier maps), providers, classifier, dedup,
-  // session, momentum, responseCache, costAlerts — all optional, all merged
+  // session, momentum, responseCache, costAlerts: all optional, all merged
   // over DEFAULT_MODEL_ROUTING_CONFIG.
 });
 // Route your LLM client at http://127.0.0.1:9000/v1/chat/completions
 
-// Path 1b — Mode 2 (in-process scoring): pass `enabled: false` to skip the proxy.
+// Path 1b: Mode 2 (in-process scoring), pass `enabled: false` to skip the proxy.
 await mr.initialize({ enabled: false });
 const result = mr.pickTier({
   body: {
@@ -1142,7 +1142,7 @@ const result = mr.pickTier({
 });
 // result = { tier: 'COMPLEX', score: 47.2, confidence: 0.83, dimensions: [...] }
 // Pick a profile and read that profile's tier map. The proxy uses this same
-// shape — there's no flat `config.tiers` anymore.
+// shape. There's no flat `config.tiers` anymore.
 const tierConfig = mr.getConfig().tiersByProfile.eco[result.tier];
 // tierConfig = { primary: 'gpt-5', fallbacks: ['claude-opus-4-7'] }
 
@@ -1164,7 +1164,7 @@ mr.updateConfig({
 new MiddlewareRegistry().register(mr);
 
 // Path 3: Disk-backed. CLI (`sai router …`) and dashboard use the same pair.
-// `tierOverridesByProfile` slots are independent — writing one doesn't
+// `tierOverridesByProfile` slots are independent. Writing one doesn't
 // disturb the others.
 await ModelRoutingPolicyStore.update({
   tierOverridesByProfile: {
@@ -1179,7 +1179,7 @@ mr.reloadConfig();
 **Runtime control of the proxy.** Toggle without re-initializing:
 
 ```ts
-await mr.start();      // bind the proxy port (idempotent — no-op if running)
+await mr.start();      // bind the proxy port (idempotent, no-op if running)
 await mr.stop();       // tear down the proxy + cleanup; instance stays usable
 await mr.start();      // re-bind without rebuilding config
 await mr.shutdown();   // permanent teardown (Middleware-interface contract)
@@ -1191,16 +1191,16 @@ await mr.shutdown();   // permanent teardown (Middleware-interface contract)
 
 ##### Standalone Primitives
 
-Model Routing's internals are unusually composable — every stage of the pipeline is exported as a free function or small class so you can build your own router without ever instantiating `ModelRoutingMiddleware`:
+Model Routing's internals are unusually composable. Every stage of the pipeline is exported as a free function or small class so you can build your own router without ever instantiating `ModelRoutingMiddleware`:
 
 | Export | What it gives you |
 |---|---|
-| `scoreRequest(input, scoringConfig)` | The 23-dimension scorer as a free function. Same return shape as `mr.pickTier(input)` — `{ tier, score, confidence, dimensions }`. Useful for tests and one-off classification. |
+| `scoreRequest(input, scoringConfig)` | The 23-dimension scorer as a free function. Same return shape as `mr.pickTier(input)`, `{ tier, score, confidence, dimensions }`. Useful for tests and one-off classification. |
 | `classifyWithLLM(input, classifierConfig)` | The optional LLM-based fallback classifier (used when scoring confidence is below the ambiguity threshold). |
 | `RequestDeduplicator` | SHA-256-keyed inflight + completed dedup cache with a 30s window. Drop into your own HTTP client to merge concurrent identical requests. |
 | `ResponseCache` | LRU response cache for `temperature=0` non-streaming requests. 200 entries / 10 min by default. |
 | `CostTracker` | 90-day rolling cost ledger with daily warn/critical alerts. |
-| `discoverAllModels()` / `resolveProvider()` / `autoAssignTiers()` | Live LiteLLM catalog pull, provider-format detection, and tier auto-assignment — the building blocks `sai router models` uses internally. |
+| `discoverAllModels()` / `resolveProvider()` / `autoAssignTiers()` | Live LiteLLM catalog pull, provider-format detection, and tier auto-assignment, the building blocks `sai router models` uses internally. |
 | `MomentumTracker`, `SessionStore` | Session-momentum and pinning state. Use to keep the same model warm across turns when running your own proxy. |
 | `PluginRegistry`, `RouterPlugin` | Hook-point system for `onBeforeScore` / `onAfterScore` / `onBeforeForward` / `onAfterForward`. Compose with `ModelRoutingMiddleware` or use standalone. |
 | `PROFILE_CONFIGS`, `VALID_PROFILES`, `isValidProfile` | The three built-in profile presets (`eco` / `premium` / `agentic`) and validators. |
@@ -1253,7 +1253,7 @@ import {
 | `beforeAgentStart(ctx: AgentStartContext)` | `before_agent_start` | Prompt-guard policy injection, async OpenAI Moderation API (caches result for `beforeMessageWrite`) |
 | `beforeMessageWrite(ctx: MessageWriteContext)` | `before_message_write` | **Two stages in one method.** (a) Security write scanner — all roles: role impersonation, agent interrogation, canary tracker, transcript regex/prefix/heuristic scan, moderation-cache enforcement; may block, rewrite, or pass through. (b) Output scrubber — assistant only, gated on `guardrail.outputScrubber.enabled`: strips middleware tokens, reasoning artifacts, architecture leaks, instruction-reflection patterns; operates on stage (a)'s rewrite when one occurred. Same method drives both the OpenClaw plugin runtime and programmatic `MiddlewareRegistry`-style use. |
 
-**Block / escalate / pass — same shape across the suite.** `beforeToolCall` returns the standard `MiddlewareResult`. Hard BLOCK detections set `block: true`; WARN detections (which want HITL approval rather than a hard deny) set the first-class `escalate: true` + `escalateReason` fields instead — the same channel `PiiSanitizerMiddleware` uses for its ESCALATE-severity DLP rules, so orchestrators read one consistent field across middlewares:
+**Block / escalate / pass: same shape across the suite.** `beforeToolCall` returns the standard `MiddlewareResult`. Hard BLOCK detections set `block: true`; WARN detections (which want HITL approval rather than a hard deny) set the first-class `escalate: true` + `escalateReason` fields instead. The same channel `PiiSanitizerMiddleware` uses for its ESCALATE-severity DLP rules, so orchestrators read one consistent field across middlewares:
 
 ```ts
 const result = await gr.beforeToolCall(ctx);
@@ -1278,7 +1278,7 @@ await gr.initialize({
   dryRunMode: true,
   entropyThreshold: 5.0,
   // rules, sensitivePaths, egressControl, destructiveCommands, outputScrubber,
-  // moderation — all optional partials, all merged over DEFAULT_GUARDRAIL_CONFIG
+  // moderation: all optional partials, all merged over DEFAULT_GUARDRAIL_CONFIG
 });
 new MiddlewareRegistry().register(gr);
 
@@ -1290,7 +1290,7 @@ await GuardrailConfigStore.update({ dryRunMode: true });
 gr.reloadConfig();
 ```
 
-`GuardrailMiddleware` covers all three lifecycle surfaces (`before_tool_call`, `before_agent_start`, `before_message_write`) — the OpenClaw plugin runtime uses this class as its sole guardrail entrypoint, mirroring the `Interceptor` pattern HITL uses.
+`GuardrailMiddleware` covers all three lifecycle surfaces (`before_tool_call`, `before_agent_start`, `before_message_write`). The OpenClaw plugin runtime uses this class as its sole guardrail entrypoint, mirroring the `Interceptor` pattern HITL uses.
 
 ##### Standalone Primitives
 
@@ -1298,19 +1298,19 @@ Guardrail's pre-merge architecture exposed every guard as either a hook factory 
 
 | Export | What it gives you |
 |---|---|
-| `GuardrailScanner` | Lower-level regex / prefix / heuristic scanner. Construct with an inline `GuardrailConfig` and call `.scan(text): GuardrailDetection[]` for ad-hoc text scanning. Note: this **only** covers the pure-pattern engines — sensitive paths, egress, destructive commands, role impersonation, canary tracker, and moderation still read from `GuardrailConfigStore.getCached()`, so this is not a full inline pipeline. |
-| `executeGuardrailScan(toolName, moduleName, methodName, params, sessionKey?, agentId?, configOverride?)` | One-shot scan that runs the full regex+prefix+heuristic stack against a tool call's params (text is extracted from string fields internally). Returns `GuardrailScanResult` — `{ block, escalate, detections }`. Pass `configOverride` to avoid the cached-store dependency. For pure-text scanning that doesn't go through tool params, prefer `GuardrailScanner.scan(text)`. |
-| `createWriteScannerHook(getConfig?)` | Returns a `before_message_write` hook function. Pass an optional config getter to override the cached-store fallback. (The other two hook factories below do **not** take a config getter — they always read the cached store.) |
+| `GuardrailScanner` | Lower-level regex / prefix / heuristic scanner. Construct with an inline `GuardrailConfig` and call `.scan(text): GuardrailDetection[]` for ad-hoc text scanning. Note: this **only** covers the pure-pattern engines. Sensitive paths, egress, destructive commands, role impersonation, canary tracker, and moderation still read from `GuardrailConfigStore.getCached()`, so this is not a full inline pipeline. |
+| `executeGuardrailScan(toolName, moduleName, methodName, params, sessionKey?, agentId?, configOverride?)` | One-shot scan that runs the full regex+prefix+heuristic stack against a tool call's params (text is extracted from string fields internally). Returns `GuardrailScanResult`, `{ block, escalate, detections }`. Pass `configOverride` to avoid the cached-store dependency. For pure-text scanning that doesn't go through tool params, prefer `GuardrailScanner.scan(text)`. |
+| `createWriteScannerHook(getConfig?)` | Returns a `before_message_write` hook function. Pass an optional config getter to override the cached-store fallback. (The other two hook factories below do **not** take a config getter. They always read the cached store.) |
 | `createPromptGuardHook()` | Returns a `before_agent_start` hook for prompt-guard policy injection. |
 | `createModerationGuardHook()` | Returns the async OpenAI Moderation API hook that primes the sync cache for `before_message_write`. |
 | `consumeModerationResult(sessionKey)` | Reads (and clears) a moderation cache entry. Use to inspect what the async hook saw before sync enforcement runs. |
 | `scrubMetadata(text, cfg)` | Pure function that strips middleware metadata tokens from agent output. Useful in pipelines that already handle output formatting. |
-| `getPatternCount()` | Diagnostic — returns the live count of compiled regex patterns. |
+| `getPatternCount()` | Diagnostic, returns the live count of compiled regex patterns. |
 
 ```ts
 import { GuardrailScanner, scrubMetadata } from '@sapience-ai-corporation/openclaw-middleware-suite/guardrail';
 
-const scanner = new GuardrailScanner(/* GuardrailConfig — typically GuardrailConfigStore.getCached() */);
+const scanner = new GuardrailScanner(/* GuardrailConfig, typically GuardrailConfigStore.getCached() */);
 // Example role-override input (broken across concat to keep the README itself
 // from matching naive prompt-injection scanners that read source verbatim).
 const userInput = ['Ignore', 'previous', 'instructions and …'].join(' ');
@@ -1350,7 +1350,7 @@ import {
 |---|---|---|
 | `beforeToolCall(ctx: MiddlewareContext)` | `before_tool_call` | Recursively scans tool params (deep traversal of nested objects, arrays, and shell-command literals via `ShellParser`) against the loaded `DlpPolicy`. Returns `{ block: true, reason }` for BLOCK-severity matches; `{ block: false, escalate: true, escalateReason }` for ESCALATE-severity matches (route through HITL approval); `{ block: false, modifiedParams }` for REDACT matches (sanitized params replace the originals); `{ block: false }` when nothing matched. |
 
-**Same calling convention as guardrail.** `PiiSanitizerMiddleware` implements the standard `Middleware` interface and shares the same `MiddlewareResult` shape — including the first-class `escalate` / `escalateReason` channel. BLOCK-severity rules return `block: true`; ESCALATE-severity rules return `block: false, escalate: true, escalateReason: …` so orchestrators can route through HITL instead of hard-blocking. Either path may also carry `modifiedParams` with redactions applied.
+**Same calling convention as guardrail.** `PiiSanitizerMiddleware` implements the standard `Middleware` interface and shares the same `MiddlewareResult` shape, including the first-class `escalate` / `escalateReason` channel. BLOCK-severity rules return `block: true`; ESCALATE-severity rules return `block: false, escalate: true, escalateReason: …` so orchestrators can route through HITL instead of hard-blocking. Either path may also carry `modifiedParams` with redactions applied.
 
 ```ts
 const result = await pii.beforeToolCall(ctx);
@@ -1370,7 +1370,7 @@ const pii = new PiiSanitizerMiddleware();
 // Path 1: Inline at initialize
 await pii.initialize({
   dryRunMode: true,
-  // globalRules, toolPolicies — optional partials, all merged over DEFAULT_DLP_POLICY
+  // globalRules, toolPolicies: optional partials, all merged over DEFAULT_DLP_POLICY
 });
 new MiddlewareRegistry().register(pii);
 
@@ -1386,7 +1386,7 @@ pii.reloadPolicy();
 
 | Export | What it gives you |
 |---|---|
-| `PII_PATTERNS` | The full pattern dictionary keyed by `PiiPatternKey` (`EMAIL`, `SSN`, `CREDIT_CARD`, `OPENAI_KEY`, `GITHUB_TOKEN`, `IP_ADDRESS`, …). Each entry exposes `type` (`'regex' \| 'prefix' \| 'heuristic'`), `pattern` (string — compile yourself), `severity`, and `description`. Drop into your own scanner without taking a runtime dependency on `PiiSanitizerMiddleware`. |
+| `PII_PATTERNS` | The full pattern dictionary keyed by `PiiPatternKey` (`EMAIL`, `SSN`, `CREDIT_CARD`, `OPENAI_KEY`, `GITHUB_TOKEN`, `IP_ADDRESS`, …). Each entry exposes `type` (`'regex' \| 'prefix' \| 'heuristic'`), `pattern` (string, compile yourself), `severity`, and `description`. Drop into your own scanner without taking a runtime dependency on `PiiSanitizerMiddleware`. |
 | `DlpStore` | Direct read/write access to the on-disk DLP policy. Use to author the disk overlay from a setup script. |
 
 ```ts
@@ -1432,7 +1432,7 @@ const limits = new ToolCallLimitMiddleware();
 await limits.initialize({
   globalSessionCallLimit: 100,
   globalRequestCallLimit: 20,
-  // modules: per-tool rules — optional partial, merged over DEFAULT_LIMIT_POLICY
+  // modules: per-tool rules, optional partial, merged over DEFAULT_LIMIT_POLICY
 });
 new MiddlewareRegistry().register(limits);
 
@@ -1444,7 +1444,7 @@ await LimitPolicyStore.update({ globalSessionCallLimit: 200 });
 limits.reloadConfig();
 ```
 
-> **`sai limits reset` always reflects disk.** The reset signal (set by the CLI via the `resetAt` field) is checked against `LimitPolicyStore.getCached()` directly, not the per-instance policy — so a reset issued by an out-of-process CLI is always picked up on the next tool call regardless of in-memory `updateConfig()` state.
+> **`sai limits reset` always reflects disk.** The reset signal (set by the CLI via the `resetAt` field) is checked against `LimitPolicyStore.getCached()` directly, not the per-instance policy, so a reset issued by an out-of-process CLI is always picked up on the next tool call regardless of in-memory `updateConfig()` state.
 
 ##### Standalone Primitives
 
@@ -1452,7 +1452,7 @@ limits.reloadConfig();
 |---|---|
 | `LimitPolicyStore` | Direct read/write access to the on-disk `LimitPolicy`. Use to author the disk overlay from a setup script, or to issue an out-of-process reset by writing a fresh `resetAt` marker (the same mechanism `sai limits reset` uses). |
 
-The counter trackers (`SessionTracker` / `RequestTracker`) are intentionally private — they're tightly coupled to the `before_tool_call` lifecycle and reset semantics. If you need session-budget enforcement outside the middleware, open an issue describing the use case.
+The counter trackers (`SessionTracker` / `RequestTracker`) are intentionally private. They're tightly coupled to the `before_tool_call` lifecycle and reset semantics. If you need session-budget enforcement outside the middleware, open an issue describing the use case.
 
 ---
 
@@ -1542,13 +1542,13 @@ All runtime data stored in `~/.openclaw/sapience-ai-suite/`. Config lives in a s
 
 ## Security Guarantees
 
-- **Zero Trust** — Every action evaluated against policy, no implicit trust
-- **Synchronous Blocking** — Agent waits for approval before executing
-- **No Bypass** — Plugin hooks intercept all tool calls at the framework level
-- **Immutable Audit** — JSON Lines append-only format for compliance
-- **Fail Secure** — Unknown actions default to ASK
-- **ArgsHash Verification** — Approved params are hash-checked on retry to prevent substitution attacks
-- **Defense in Depth** — Multiple independent detection layers (guardrail, PII, HITL)
+- **Zero Trust**: Every action evaluated against policy, no implicit trust
+- **Synchronous Blocking**: Agent waits for approval before executing
+- **No Bypass**: Plugin hooks intercept all tool calls at the framework level
+- **Immutable Audit**: JSON Lines append-only format for compliance
+- **Fail Secure**: Unknown actions default to ASK
+- **ArgsHash Verification**: Approved params are hash-checked on retry to prevent substitution attacks
+- **Defense in Depth**: Multiple independent detection layers (guardrail, PII, HITL)
 
 ---
 
@@ -1605,21 +1605,6 @@ Questions, bug reports, and feature requests welcome.
 
 ## License
 
-Apache License, Version 2.0 — see [LICENSE](LICENSE).
+Apache License, Version 2.0. See [LICENSE](LICENSE).
 
-The Human-in-the-Loop middleware in `src/middlewares/hitl/` is derived from the [Reins](https://github.com/pegasi-ai/reins) project by Pegasi, used under the Apache License 2.0. The Model Routing middleware in `src/middlewares/model-routing/` incorporates code from the [Manifest](https://github.com/mnfst/manifest) project by MNFST, Inc. and the [ClawRouter](https://github.com/BlockRunAI/ClawRouter) project by BlockRun, both used under the MIT License. The Guardrail middleware in `src/middlewares/guardrail/` incorporates code, scanner logic, and detection patterns from the [OpenClaw Shield](https://github.com/knostic/openclaw-shield) project by Knostic and the [OpenGuardrails](https://github.com/openguardrails/openguardrails) project, both used under the Apache License 2.0 (OpenGuardrails carries additional upstream conditions on multi-tenant SaaS use and frontend brand attribution — this product uses it as a backend / SDK-style component only and does not embed its frontend or operate a multi-tenant SaaS based on its source). See [NOTICE](NOTICE) for the full attribution and the list of derived files. Per-file headers identify origin and modifications in accordance with Apache 2.0 §4(b).
-
----
-
-<div align="center">
-  <br />
-  <img src="https://raw.githubusercontent.com/Sapience-AI/openclaw-middleware-suite/main/src/dashboard/public/sai-logo.svg" alt="Sapience AI" width="60" height="60" />
-  <br />
-  <br />
-  <strong>Built by <a href="https://sapienceai.co">Sapience AI</a> for a safer AI future.</strong>
-  <br />
-  <br />
-  <sub>If your agent can do it, the middleware sees it first.</sub>
-  <br />
-  <br />
-</div>
+The Human-in-the-Loop middleware in `src/middlewares/hitl/` is derived from the [Reins](https://github.com/pegasi-ai/reins) project by Pegasi, used under the Apache License 2.0. The Model Routing middleware in `src/middlewares/model-routing/` incorporates code from the [Manifest](https://github.com/mnfst/manifest) project by MNFST, Inc. and the [ClawRouter](https://github.com/BlockRunAI/ClawRouter) project by BlockRun, both used under the MIT License. The Guardrail middleware in `src/middlewares/guardrail/` incorporates code, scanner logic, and detection patterns from the [OpenClaw Shield](https://github.com/knostic/openclaw-shield) project by Knostic and the [OpenGuardrails](https://github.com/openguardrails/openguardrails) project, both used under the Apache License 2.0 (OpenGuardrails carries additional upstream conditions on multi-tenant SaaS use and frontend brand attribution; this product uses it as a backend / SDK-style component only and does not embed its frontend or operate a multi-tenant SaaS based on its source). See [NOTICE](NOTICE) for the full attribution and the list of derived files. Per-file headers identify origin and modifications in accordance with Apache 2.0 §4(b).
