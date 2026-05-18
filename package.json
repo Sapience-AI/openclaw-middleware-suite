@@ -125,7 +125,7 @@
     "preact": "^10.19.0",
     "preact-router": "^4.1.0",
     "husky": "^9.1.7",
-    "lint-staged": "^16.4.0",
+    "lint-staged": "^17.0.5",
     "prettier": "^3.8.3",
     "ts-node": "^10.9.2",
     "typescript": "^5.3.3",
