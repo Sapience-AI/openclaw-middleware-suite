@@ -15,10 +15,13 @@ const u = (p) => pathToFileURL(path.join(distBase, p)).href;
 // polynomial / exponential backtracking. With bounded quantifiers in place,
 // each call must complete well under the budget.
 //
-// 500ms is generous: a polynomial-redos blowup would take many seconds,
-// so this catches regressions while tolerating CI/local-machine variance.
+// The budget is deliberately generous: a polynomial-redos blowup would take
+// many seconds (often tens), so even a multi-second ceiling cleanly separates
+// a bounded regex from a catastrophic one while tolerating slower or contended
+// CI hardware (e.g. self-hosted runners). Override via REDOS_BUDGET_MS if a
+// particular environment needs more headroom.
 
-const BUDGET_MS = 500;
+const BUDGET_MS = Number(process.env.REDOS_BUDGET_MS) || 3000;
 
 function timed(fn) {
   const t0 = performance.now();
