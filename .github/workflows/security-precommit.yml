@@ -13,7 +13,7 @@
 # Tools pre-installed in runner image: python3, pre-commit, gitleaks, semgrep
 # ═══════════════════════════════════════════════════════════════════
 
-name: "Security Scan"
+name: "Security Pre-commit Scan"
 
 on:
   workflow_call:
