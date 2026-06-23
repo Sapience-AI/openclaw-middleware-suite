@@ -1,0 +1,137 @@
+# .github/workflows/semgrep.yml
+# SAST scanning with Semgrep OSS — replaces GitHub CodeQL.
+#
+# Behavior:
+#   - On pull_request: scan the diff, post findings via SARIF to the GitHub Security tab,
+#     and annotate the PR inline.
+#   - On push to default branch: full-tree scan, SARIF uploaded for baseline.
+#   - On schedule (weekly): full-tree scan to catch rule updates catching new issues
+#     in existing code.
+#
+# Required permissions:
+#   - security-events: write   (to upload SARIF to the Security tab)
+#   - contents: read           (to check out the repo)
+#   - pull-requests: write     (to annotate PRs; optional but recommended)
+#
+# No secrets required. Uses semgrep/semgrep OSS container.
+
+name: semgrep
+
+# Push/PR auto-triggers removed — this file is called by the security tier orchestrators:
+#   security-tier1-dev-push.yml   (push to dev)
+#   security-tier2-pr-gate.yml    (PR to main — BLOCKING)
+#   security-tier3-main-baseline.yml (push to main)
+# Weekly schedule retained: catches new Semgrep OSS rules finding issues
+# in existing code that was clean when first committed.
+on:
+  workflow_call:
+  schedule:
+    # Weekly full scan — Mondays 06:00 UTC (rule-update catch)
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+  pull-requests: write
+
+concurrency:
+  group: semgrep-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  semgrep:
+    name: Semgrep OSS scan
+    # Self-hosted GKE runner — semgrep is pre-installed in the runner image.
+    # No `container:` block here: DinD was intentionally stripped from the runner
+    # image to reduce attack surface. semgrep is installed via pip in the Dockerfile.
+    # ARC scale-set routing: bare scale set name only (label arrays require minRunners>=1).
+    runs-on: sapience-default
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # Full history on push/schedule so ignored-by-default rules that consider
+          # history (e.g. deleted-file checks) work. PR events use default shallow clone.
+          fetch-depth: ${{ github.event_name == 'pull_request' && 1 || 0 }}
+          # persist-credentials: true so semgrep ci can fetch the baseline commit for
+          # PR diff scanning. Safe on ephemeral runner pods — pod destroyed after job.
+          persist-credentials: true
+
+      - name: Run Semgrep (SARIF)
+        # Rulesets (all OSS):
+        #   p/default         - balanced, low-FP baseline
+        #   p/security-audit  - higher recall, taint-mode rules for common web frameworks
+        #   p/owasp-top-ten   - OWASP Top 10 coverage
+        #   p/secrets         - hardcoded secret patterns (cheap cross-check with Gitleaks)
+        #   p/ci              - rules specifically tuned for CI signal-to-noise
+        #
+        # Add language packs as needed, e.g. p/python, p/javascript, p/go, p/java, p/ruby.
+        # Keep the list small — every ruleset adds FPs; tune by adding, don't start with all.
+        # semgrep scan --error is used instead of semgrep ci:
+        #   semgrep ci (without SEMGREP_APP_TOKEN) treats ALL findings as blocking even if
+        #   suppressed via # nosemgrep — nosemgrep annotations don't gate the exit code.
+        #   semgrep scan --error exits non-zero only on UNSUPPRESSED findings, so
+        #   # nosemgrep inline comments work as intended for CI gate suppression.
+        run: |
+          semgrep scan \
+            --config=p/default \
+            --config=p/security-audit \
+            --config=p/owasp-top-ten \
+            --config=p/secrets \
+            --config=p/ci \
+            --sarif \
+            --output=semgrep.sarif \
+            --metrics=off \
+            --error
+
+      # SARIF upload to GitHub Security tab (github/codeql-action/upload-sarif) requires
+      # GitHub Advanced Security (GHAS) — a paid GitHub feature. We deliberately omit it:
+      # all scan execution runs on GKE self-hosted runners (GCP cost centre) and findings
+      # are captured below as a free build artifact. Enable GHAS and add the upload step
+      # back if the organisation moves to a GitHub-hosted security posture in future.
+
+      - name: Upload SARIF as artifact (evidence / debugging)
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: semgrep-sarif
+          path: semgrep.sarif
+          retention-days: 90
+
+      - name: Notify #product-security-alerts via Slack (findings only)
+        if: failure()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          GH_REPO: ${{ github.repository }}
+          GH_REF: ${{ github.ref_name }}
+          GH_EVENT: ${{ github.event_name }}
+          GH_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -z "$SLACK_WEBHOOK_URL" ]; then
+            echo "SLACK_WEBHOOK_URL not set — skipping Slack notification."
+            exit 0
+          fi
+          COUNT=0
+          if [ -f semgrep.sarif ]; then
+            COUNT=$(python3 -c "import json; data=json.load(open('semgrep.sarif')); print(sum(len(r.get('results',[])) for r in data.get('runs',[])))" 2>/dev/null || echo 0)
+          fi
+          curl -sS -X POST "$SLACK_WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"text\": \":rotating_light: *Semgrep found ${COUNT} issue(s)* in \`${GH_REPO}\` (${GH_EVENT}: \`${GH_REF}\`)\",
+              \"blocks\": [
+                {\"type\": \"header\", \"text\": {\"type\": \"plain_text\", \"text\": \":rotating_light: Semgrep: Security Issues Detected\", \"emoji\": true}},
+                {\"type\": \"section\", \"fields\": [
+                  {\"type\": \"mrkdwn\", \"text\": \"*Repository:*\n\`${GH_REPO}\`\"},
+                  {\"type\": \"mrkdwn\", \"text\": \"*Findings:*\n${COUNT} issue(s)\"},
+                  {\"type\": \"mrkdwn\", \"text\": \"*Trigger:*\n${GH_EVENT} on \`${GH_REF}\`\"}
+                ]},
+                {\"type\": \"section\", \"text\": {\"type\": \"mrkdwn\", \"text\": \":mag: Review the \`semgrep-sarif\` artifact for details and triage by severity.\"}},
+                {\"type\": \"actions\", \"elements\": [
+                  {\"type\": \"button\", \"style\": \"danger\", \"text\": {\"type\": \"plain_text\", \"text\": \"View Run & Artifact\"}, \"url\": \"${GH_RUN_URL}\"}
+                ]}
+              ]
+            }"

@@ -1,52 +1,31 @@
-# ─────────────────────────────────────────────────────────────────────────────
-# Sapience Security Scanning — caller workflow (Tier 1 / 2 / 3)
+# =============================================================================
+# Sapience Security Scanning - caller workflow (Tier 1 / 2 / 3)
 #
-# Drop this single file into .github/workflows/ in any Sapience-AI repo.
-# It covers all three scanning tiers with one file — no duplication.
+# Self-contained for this PUBLIC repo: the scan logic lives in local reusable
+# workflows in this same .github/workflows/ directory (copied from
+# SapienceAICorp-Infrastructure, which is private and cannot be called from a
+# public repo). This file is the trigger + conditional orchestrator.
 #
-# Tier 1 — push to any branch
-#   Fast feedback: gitleaks + semgrep in parallel (~2 min).
+# Tier 1 - push to any branch:        gitleaks + semgrep
+# Tier 2 - pull_request to main:      + trufflehog + checkov + pre-commit  (BLOCKING)
+# Tier 3 - push to main (post-merge): + trufflehog
 #
-# Tier 2 — pull_request targeting main  ★ BLOCKING ★
-#   Full suite before merge: gitleaks + semgrep + trufflehog (verified) +
-#   checkov (IaC) + pre-commit (SAST / lint hooks).
+# Local reusable workflows:
+#   ./.github/workflows/gitleaks.yml
+#   ./.github/workflows/semgrep.yml
+#   ./.github/workflows/trufflehog.yml
+#   ./.github/workflows/checkov.yml
+#   ./.github/workflows/security-precommit.yml   (pre-commit + gitleaks history)
 #
-# Tier 3 — push to main (post-merge baseline)
-#   Full history re-scan: gitleaks + semgrep + trufflehog.
-#   Catches anything that diverged in the merge commit.
-#
-# ── How it works ─────────────────────────────────────────────────────────────
-# All job logic lives in reusable workflows in SapienceAICorp-Infrastructure.
-# This file is a pure trigger + conditional orchestrator — nothing to maintain.
-# To change what a scan does, open the tool workflow in the infra repo.
-#
-# ── Prerequisites ─────────────────────────────────────────────────────────────
-# • SLACK_BOT_TOKEN — GitHub Actions secret (org-level secret propagates
-#   automatically if configured). Required for Slack alerts on findings.
-# • For pre-commit SAST (Tier 2): add a .pre-commit-config.yaml to this repo.
-#   Copy from SapienceAICorp-Infrastructure as a starting point.
-#   If missing, the pre-commit job skips gracefully (no failure).
-#
-# ── Branch protection ─────────────────────────────────────────────────────────
-# Require these status checks before merging to main:
-#   gitleaks / Gitleaks secret scan
-#   semgrep / Semgrep OSS scan
-#   trufflehog / TruffleHog verified-credential scan
-#   checkov / Checkov IaC scan
-#   pre-commit / Pre-commit checks
-#   pre-commit / Gitleaks history scan
-#
-# ── No GCP setup required ─────────────────────────────────────────────────────
-# Runners are sapience-default (GKE self-hosted). The runner fleet authenticates
-# to GCP via GKE Workload Identity — this repo needs no WIF configuration.
-# ─────────────────────────────────────────────────────────────────────────────
+# Runners: sapience-default (GKE self-hosted).
+# =============================================================================
 
 name: "Security Scan"
 
 on:
-  push:                        # Tier 1 (all branches) + Tier 3 (main post-merge)
+  push:
   pull_request:
-    branches: [main]           # Tier 2 — full blocking gate before merge
+    branches: [main]
   workflow_dispatch:
 
 concurrency:
@@ -60,38 +39,32 @@ permissions:
   issues: write
 
 jobs:
-  # ── Tier 1/2/3 — runs on every event ────────────────────────────────────────
-
   gitleaks:
     name: "Gitleaks"
-    uses: Sapience-AI/SapienceAICorp-Infrastructure/.github/workflows/gitleaks.yml@main
+    uses: ./.github/workflows/gitleaks.yml
     secrets: inherit
 
   semgrep:
     name: "Semgrep"
-    uses: Sapience-AI/SapienceAICorp-Infrastructure/.github/workflows/semgrep.yml@main
+    uses: ./.github/workflows/semgrep.yml
     secrets: inherit
-
-  # ── Tier 2/3 — PR to main + post-merge push to main ─────────────────────────
 
   trufflehog:
     name: "TruffleHog"
     if: |
       github.event_name == 'pull_request' ||
       (github.event_name == 'push' && github.ref == 'refs/heads/main')
-    uses: Sapience-AI/SapienceAICorp-Infrastructure/.github/workflows/trufflehog.yml@main
+    uses: ./.github/workflows/trufflehog.yml
     secrets: inherit
-
-  # ── Tier 2 only — PR gate ────────────────────────────────────────────────────
 
   checkov:
     name: "Checkov"
     if: github.event_name == 'pull_request'
-    uses: Sapience-AI/SapienceAICorp-Infrastructure/.github/workflows/checkov.yml@main
+    uses: ./.github/workflows/checkov.yml
     secrets: inherit
 
   pre-commit:
     name: "Pre-commit + Gitleaks history"
     if: github.event_name == 'pull_request'
-    uses: Sapience-AI/SapienceAICorp-Infrastructure/.github/workflows/security-scan.yaml@main
+    uses: ./.github/workflows/security-precommit.yml
     secrets: inherit

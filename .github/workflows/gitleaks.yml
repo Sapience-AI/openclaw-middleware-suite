@@ -1,0 +1,150 @@
+# .github/workflows/gitleaks.yml
+# Secret scanning with Gitleaks — replaces GitHub Secret Scanning (pattern-based).
+# Pair with trufflehog.yml (verified/live credential detection).
+#
+# Behavior:
+#   - On pull_request: scan the diff only (fast, <30s on typical PR).
+#   - On push to default branch: scan full git history (catches anything merged via squash
+#     or committed outside PR flow).
+#   - Findings upload as SARIF to the Security tab.
+#
+# Required permissions:
+#   - security-events: write   (SARIF upload)
+#   - contents: read           (checkout)
+#   - pull-requests: write     (PR comments, optional)
+#
+# Config (optional): .gitleaks.toml at repo root for allowlist / custom rules.
+#
+# Licensing note: this workflow installs the gitleaks ENGINE binary directly (MIT, OSS).
+# We deliberately DO NOT use `gitleaks/gitleaks-action@v2`, which since 2.0.0 is
+# commercially licensed for organization use (requires a paid GITLEAKS_LICENSE
+# secret for org-owned repos). The engine (gitleaks/gitleaks) is MIT; the action
+# wrapper is not. OSS-only stack = engine-only, direct install.
+
+name: gitleaks
+
+# Auto-triggers removed — this file is called by the security tier orchestrators:
+#   security-tier1-dev-push.yml   (push to dev)
+#   security-tier2-pr-gate.yml    (PR to main — BLOCKING)
+#   security-tier3-main-baseline.yml (push to main)
+#
+# NOTE: When called via workflow_call, github.event_name == 'workflow_call' so
+# the PR diff-only branch is never taken — always runs full history scan.
+# This is intentional: full history is more thorough and the tiers own the
+# timing/scoping decisions, not this file.
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+  pull-requests: write
+
+concurrency:
+  group: gitleaks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gitleaks:
+    name: Gitleaks secret scan
+    # Self-hosted GKE runner — gitleaks is pre-installed in the runner image.
+    # No install step: the runner image pins the gitleaks version at build time.
+    # sudo-based install is incompatible with allowPrivilegeEscalation: false.
+    # ARC scale-set routing: bare scale set name only (label arrays require minRunners>=1).
+    runs-on: sapience-default
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # PRs: shallow clone is fine (diff-only scan).
+          # Push/schedule: full history for complete scan.
+          fetch-depth: ${{ github.event_name == 'pull_request' && 1 || 0 }}
+          # persist-credentials: true so the subsequent git fetch (base..head diff)
+          # can authenticate. Safe on ephemeral runner pods — the pod is destroyed
+          # after the job and credentials never outlive the run.
+          persist-credentials: true
+
+      - name: Verify Gitleaks (pre-installed in runner image)
+        # gitleaks is installed at image build time (see gcp-runners/runner-image/Dockerfile).
+        # The sudo-based reinstall step used on GitHub-hosted runners is not compatible
+        # with the self-hosted runner's security context (allowPrivilegeEscalation: false).
+        run: gitleaks version
+
+      - name: Run Gitleaks (PR diff-only)
+        if: github.event_name == 'pull_request'
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          # Fetch base and head so `gitleaks protect` can compute the diff range
+          git fetch --no-tags --prune --depth=50 origin "$BASE" "$HEAD"
+          gitleaks protect \
+            --source="." \
+            --log-opts="--no-merges ${BASE}..${HEAD}" \
+            --redact \
+            --report-format=sarif \
+            --report-path=gitleaks.sarif \
+            --exit-code=1 \
+            --verbose
+
+      - name: Run Gitleaks (full history)
+        if: github.event_name != 'pull_request'
+        run: |
+          gitleaks detect \
+            --source="." \
+            --redact \
+            --report-format=sarif \
+            --report-path=gitleaks.sarif \
+            --exit-code=1 \
+            --verbose
+
+      # SARIF upload to GitHub Security tab (github/codeql-action/upload-sarif) requires
+      # GitHub Advanced Security (GHAS) — a paid GitHub feature. We deliberately omit it:
+      # all scan execution runs on GKE self-hosted runners (GCP cost centre) and findings
+      # are captured below as a free build artifact. Enable GHAS and add the upload step
+      # back if the organisation moves to a GitHub-hosted security posture in future.
+
+      - name: Upload SARIF as artifact (evidence)
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: gitleaks-sarif
+          path: gitleaks.sarif
+          retention-days: 90
+
+      - name: Notify #product-security-alerts via Slack (findings only)
+        if: failure()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          GH_REPO: ${{ github.repository }}
+          GH_REF: ${{ github.ref_name }}
+          GH_EVENT: ${{ github.event_name }}
+          GH_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -z "$SLACK_WEBHOOK_URL" ]; then
+            echo "SLACK_WEBHOOK_URL not set — skipping Slack notification."
+            exit 0
+          fi
+          COUNT=0
+          if [ -f gitleaks.sarif ]; then
+            COUNT=$(python3 -c "import json; data=json.load(open('gitleaks.sarif')); print(sum(len(r.get('results',[])) for r in data.get('runs',[])))" 2>/dev/null || echo 0)
+          fi
+          curl -sS -X POST "$SLACK_WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"text\": \":rotating_light: *Gitleaks found ${COUNT} secret(s)* in \`${GH_REPO}\` (${GH_EVENT}: \`${GH_REF}\`)\",
+              \"blocks\": [
+                {\"type\": \"header\", \"text\": {\"type\": \"plain_text\", \"text\": \":rotating_light: Gitleaks: Secrets Detected\", \"emoji\": true}},
+                {\"type\": \"section\", \"fields\": [
+                  {\"type\": \"mrkdwn\", \"text\": \"*Repository:*\n\`${GH_REPO}\`\"},
+                  {\"type\": \"mrkdwn\", \"text\": \"*Findings:*\n${COUNT} secret(s)\"},
+                  {\"type\": \"mrkdwn\", \"text\": \"*Trigger:*\n${GH_EVENT} on \`${GH_REF}\`\"}
+                ]},
+                {"type": "section", "text": {"type": "mrkdwn", "text": ":fire: Review the `gitleaks-sarif` artifact. Revoke any exposed credentials immediately."}},
+                {"type": "actions", "elements": [
+                  {"type": "button", "style": "danger", "text": {"type": "plain_text", "text": "View Run & Artifact"}, "url": "${GH_RUN_URL}"}
+                ]}
+              ]}"
