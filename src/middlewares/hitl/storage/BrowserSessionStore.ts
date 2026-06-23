@@ -238,4 +238,10 @@ export class BrowserSessionStore {
 
         if (Object.keys(currentHeaders).length > 0) {
           nextParams.headers = currentHeaders;
-        
+        }
+      }
+    }
+
+    return { params: nextParams, injectedFields };
+  }
+}
