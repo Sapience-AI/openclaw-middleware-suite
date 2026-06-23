@@ -1,0 +1,70 @@
+# =============================================================================
+# Sapience Security Scanning - caller workflow (Tier 1 / 2 / 3)
+#
+# Self-contained for this PUBLIC repo: the scan logic lives in local reusable
+# workflows in this same .github/workflows/ directory (copied from
+# SapienceAICorp-Infrastructure, which is private and cannot be called from a
+# public repo). This file is the trigger + conditional orchestrator.
+#
+# Tier 1 - push to any branch:        gitleaks + semgrep
+# Tier 2 - pull_request to main:      + trufflehog + checkov + pre-commit  (BLOCKING)
+# Tier 3 - push to main (post-merge): + trufflehog
+#
+# Local reusable workflows:
+#   ./.github/workflows/gitleaks.yml
+#   ./.github/workflows/semgrep.yml
+#   ./.github/workflows/trufflehog.yml
+#   ./.github/workflows/checkov.yml
+#   ./.github/workflows/security-precommit.yml   (pre-commit + gitleaks history)
+#
+# Runners: sapience-default (GKE self-hosted).
+# =============================================================================
+
+name: "Security Scan"
+
+on:
+  push:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: security-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  security-events: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  gitleaks:
+    name: "gitleaks"
+    uses: ./.github/workflows/gitleaks.yml
+    secrets: inherit
+
+  semgrep:
+    name: "semgrep"
+    uses: ./.github/workflows/semgrep.yml
+    secrets: inherit
+
+  trufflehog:
+    name: "trufflehog"
+    if: |
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    uses: ./.github/workflows/trufflehog.yml
+    secrets: inherit
+
+  checkov:
+    name: "checkov"
+    if: github.event_name == 'pull_request'
+    uses: ./.github/workflows/checkov.yml
+    secrets: inherit
+
+  pre-commit:
+    name: "pre-commit"
+    if: github.event_name == 'pull_request'
+    uses: ./.github/workflows/security-precommit.yml
+    secrets: inherit

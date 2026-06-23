@@ -1,0 +1,126 @@
+# ═══════════════════════════════════════════════════════════════════
+# Security Scan — pre-commit hooks as CI gate
+# ═══════════════════════════════════════════════════════════════════
+# Reusable workflow (workflow_call). Called by:
+#   - Any Sapience-AI repo via .github/workflows/security-scan.yml
+#     (copy the template from security-scanning/templates/caller-security-scan.yml)
+#
+# Jobs:
+#   pre-commit       — runs .pre-commit-config.yaml hooks if present (SAST, lint)
+#   gitleaks-history — full git history secret scan (always runs)
+#
+# Runners: sapience-default (GKE Autopilot, self-hosted)
+# Tools pre-installed in runner image: python3, pre-commit, gitleaks, semgrep
+# ═══════════════════════════════════════════════════════════════════
+
+name: "Security Pre-commit Scan"
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pre-commit:
+    name: "Pre-commit checks"
+    runs-on: sapience-default
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Run pre-commit
+        run: |
+          if [ ! -f .pre-commit-config.yaml ]; then
+            echo "No .pre-commit-config.yaml found in ${{ github.repository }} — skipping pre-commit checks."
+            echo "Add a .pre-commit-config.yaml to enable hook-based SAST and lint checks."
+            exit 0
+          fi
+          python3 -m pip install pre-commit --quiet --break-system-packages
+          SKIP=no-commit-to-branch python3 -m pre_commit run \
+            --all-files \
+            --show-diff-on-failure \
+            --color=always
+
+  # Standalone gitleaks scan (covers full git history, not just staged files)
+  #
+  # NOTE: We install the gitleaks engine binary directly (MIT, OSS) rather than
+  # using `gitleaks/gitleaks-action@v2`. Since gitleaks-action 2.0.0 the action
+  # wrapper is commercially licensed for organization use (requires a paid
+  # GITLEAKS_LICENSE secret). The engine itself is MIT — we use the engine.
+  gitleaks-history:
+    name: "Gitleaks history scan"
+    runs-on: sapience-default
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Run gitleaks (full history)
+        run: |
+          gitleaks detect \
+            --source=. \
+            --redact \
+            --report-format=sarif \
+            --report-path=gitleaks.sarif \
+            --exit-code=1 \
+            --verbose
+
+      - name: Upload SARIF as artifact (evidence)
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: gitleaks-history-sarif
+          path: gitleaks.sarif
+          retention-days: 90
+
+      - name: Notify #product-security-alerts via Slack (findings only)
+        if: failure()
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          GH_REF: ${{ github.ref_name }}
+          GH_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -z "$SLACK_BOT_TOKEN" ]; then
+            echo "SLACK_BOT_TOKEN not set — skipping Slack notification."
+            exit 0
+          fi
+          COUNT=0
+          if [ -f gitleaks.sarif ]; then
+            COUNT=$(python3 -c "import json; data=json.load(open('gitleaks.sarif')); print(sum(len(r.get('results',[])) for r in data.get('runs',[])))" 2>/dev/null || echo 0)
+          fi
+          HTTP_STATUS=$(curl -sS -o /tmp/slack_response.json -w "%{http_code}" \
+            -X POST "https://slack.com/api/chat.postMessage" \
+            -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"channel\": \"#product-security-alerts\",
+              \"text\": \":rotating_light: *Gitleaks found ${COUNT} secret(s)* in \`${GH_REPO}\` (ref: \`${GH_REF}\`)\",
+              \"blocks\": [
+                {\"type\": \"header\", \"text\": {\"type\": \"plain_text\", \"text\": \":rotating_light: Gitleaks: Secrets Detected\", \"emoji\": true}},
+                {\"type\": \"section\", \"fields\": [
+                  {\"type\": \"mrkdwn\", \"text\": \"*Repository:*\n\`${GH_REPO}\`\"},
+                  {\"type\": \"mrkdwn\", \"text\": \"*Findings:*\n${COUNT} secret(s)\"},
+                  {\"type\": \"mrkdwn\", \"text\": \"*Branch:* \`${GH_REF}\`\"}
+                ]},
+                {\"type\": \"section\", \"text\": {\"type\": \"mrkdwn\", \"text\": \":fire: Secrets found. Review the \`gitleaks-history-sarif\` artifact and revoke immediately.\"}},
+                {\"type\": \"actions\", \"elements\": [
+                  {\"type\": \"button\", \"style\": \"danger\", \"text\": {\"type\": \"plain_text\", \"text\": \"View Run & Artifact\"}, \"url\": \"${GH_RUN_URL}\"}
+                ]}
+              ]}")
+          if [ "$HTTP_STATUS" != "200" ]; then
+            echo "Slack API returned HTTP $HTTP_STATUS — check SLACK_BOT_TOKEN secret."
+            cat /tmp/slack_response.json
+            exit 1
+          fi

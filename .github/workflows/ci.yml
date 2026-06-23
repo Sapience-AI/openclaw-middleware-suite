@@ -19,7 +19,7 @@ jobs:
   # ── Lint + Security Audit (merged — same Node, same npm ci) ─────
   lint:
     name: Lint & Audit
-    runs-on: ubuntu-latest
+    runs-on: sapience-default
     timeout-minutes: 10
     permissions:
       contents: read        # checkout only
@@ -48,7 +48,7 @@ jobs:
   # ── Build, Test & Coverage ────────────────────────────────────
   test:
     name: Test (Node ${{ matrix.node-version }})
-    runs-on: ubuntu-latest
+    runs-on: sapience-default
     timeout-minutes: 15
     permissions:
       contents: read        # checkout only
@@ -97,7 +97,7 @@ jobs:
   # action-download blips from failing the whole matrix) ───────────
   coverage-comment:
     name: Post coverage comment
-    runs-on: ubuntu-latest
+    runs-on: sapience-default
     needs: test
     if: github.event_name == 'pull_request' && always()
     continue-on-error: true

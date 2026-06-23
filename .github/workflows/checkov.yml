@@ -1,0 +1,123 @@
+# .github/workflows/checkov.yml
+# IaC misconfiguration scanning with Checkov — standalone CI gate.
+#
+# Behavior:
+#   - On pull_request: scan all files, post findings as SARIF artifact,
+#     annotate the PR via exit code.
+#   - On push to default branch: full scan for baseline.
+#   - On schedule (weekly): catch rule updates against existing IaC.
+#
+# Required permissions:
+#   - contents: read           (to check out the repo)
+#   - pull-requests: write     (to annotate PRs; optional but recommended)
+#
+# Suppressions live in .checkov.yaml at the repo root. All skips are
+# documented with rationale there — do not add --skip-check flags here.
+
+name: checkov
+
+# Push/PR auto-triggers removed — this file is called by the security tier orchestrators:
+#   security-tier2-pr-gate.yml    (PR to main — BLOCKING)
+# Weekly schedule retained: catches new Checkov rules finding issues in existing
+# IaC that was clean when originally committed.
+on:
+  workflow_call:
+  schedule:
+    # Weekly full scan — Tuesdays 06:00 UTC (offset from Semgrep Monday run)
+    - cron: "0 6 * * 2"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checkov-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checkov:
+    name: Checkov IaC scan
+    # Self-hosted GKE runner — checkov is pre-installed in the runner image.
+    # ARC scale-set routing: bare scale set name only.
+    runs-on: sapience-default
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Ensure Checkov is available
+        # Checkov is baked into the sapience-runner image. This step is a
+        # fast no-op when the image is current; it installs checkov at runtime
+        # only if the running pod predates the image rebuild that added it.
+        run: |
+          if ! command -v checkov &>/dev/null; then
+            echo "checkov not found in PATH — installing via pip (stale runner pod)"
+            pip install checkov==3.2.510 --break-system-packages --quiet
+          else
+            echo "checkov $(checkov --version) already available"
+          fi
+
+      - name: Run Checkov
+        # .checkov.yaml at repo root is auto-discovered and supplies all
+        # skip-check suppressions with documented rationale. --soft-fail is
+        # NOT used — any unsuppressed finding blocks the build.
+        run: |
+          checkov \
+            --config-file .checkov.yaml \
+            --directory . \
+            --output sarif \
+            --output-file-path checkov.sarif \
+            --output cli \
+            --compact \
+            --quiet
+
+      # SARIF upload to GitHub Security tab requires GitHub Advanced Security (GHAS).
+      # We deliberately omit it — findings are captured as a free build artifact.
+      # Enable GHAS and add the upload-sarif step if the org moves to that posture.
+
+      - name: Upload SARIF as artifact (evidence / debugging)
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: checkov-sarif
+          path: checkov.sarif
+          retention-days: 90
+
+      - name: Notify #product-security-alerts via Slack (findings only)
+        if: failure()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          GH_REPO: ${{ github.repository }}
+          GH_REF: ${{ github.ref_name }}
+          GH_EVENT: ${{ github.event_name }}
+          GH_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -z "$SLACK_WEBHOOK_URL" ]; then
+            echo "SLACK_WEBHOOK_URL not set — skipping Slack notification."
+            exit 0
+          fi
+          COUNT=0
+          if [ -f checkov.sarif ]; then
+            COUNT=$(python3 -c "import json; data=json.load(open('checkov.sarif')); print(sum(len(r.get('results',[])) for r in data.get('runs',[])))" 2>/dev/null || echo 0)
+          fi
+          curl -sS -X POST "$SLACK_WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"text\": \":rotating_light: *Checkov found ${COUNT} issue(s)* in \`${GH_REPO}\` (${GH_EVENT}: \`${GH_REF}\`)\",
+              \"blocks\": [
+                {\"type\": \"header\", \"text\": {\"type\": \"plain_text\", \"text\": \":rotating_light: Checkov: IaC Misconfigurations Detected\", \"emoji\": true}},
+                {\"type\": \"section\", \"fields\": [
+                  {\"type\": \"mrkdwn\", \"text\": \"*Repository:*\n\`${GH_REPO}\`\"},
+                  {\"type\": \"mrkdwn\", \"text\": \"*Findings:*\n${COUNT} issue(s)\"},
+                  {\"type\": \"mrkdwn\", \"text\": \"*Trigger:*\n${GH_EVENT} on \`${GH_REF}\`\"}
+                ]},
+                {\"type\": \"section\", \"text\": {\"type\": \"mrkdwn\", \"text\": \":mag: Review the \`checkov-sarif\` artifact for details. Add suppressions to \`.checkov.yaml\` with rationale.\"}},
+                {\"type\": \"actions\", \"elements\": [
+                  {\"type\": \"button\", \"style\": \"danger\", \"text\": {\"type\": \"plain_text\", \"text\": \"View Run & Artifact\"}, \"url\": \"${GH_RUN_URL}\"}
+                ]}
+              ]
+            }"

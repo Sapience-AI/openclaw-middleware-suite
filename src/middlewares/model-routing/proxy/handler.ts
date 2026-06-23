@@ -1723,7 +1723,9 @@ function copySelectHeaders(req: IncomingMessage, target: Record<string, string>)
   const forwardHeaders = ['anthropic-version', 'anthropic-beta', 'x-api-key'];
   for (const h of forwardHeaders) {
     if (req.headers[h]) {
-      target[h] = req.headers[h] as string;
+      // 'h' iterates a fixed, hardcoded allowlist (forwardHeaders) - not user-
+      // controlled input, so no property injection is possible (semgrep false positive).
+      target[h] = req.headers[h] as string; // nosemgrep
     }
   }
 }
