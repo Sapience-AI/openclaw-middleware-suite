@@ -105,7 +105,8 @@ jobs:
                  for r in run.get("tool", {}).get("driver", {}).get("rules", [])}
           results = run.get("results", [])
           errors = [x for x in results
-                    if (x.get("level") or lvl.get(x.get("ruleId"), "")) == "error"]
+                    if (x.get("level") or lvl.get(x.get("ruleId"), "")) == "error"
+                    and not x.get("suppressions")]
           print(f"Semgrep: {len(results)} finding(s) total; {len(errors)} ERROR-level (blocking).")
           for x in errors:
               p = x["locations"][0]["physicalLocation"]
