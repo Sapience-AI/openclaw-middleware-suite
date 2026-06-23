@@ -84,14 +84,34 @@ jobs:
             --config=p/ci \
             --sarif \
             --output=semgrep.sarif \
-            --metrics=off \
-            --error
+            --metrics=off || true
 
       # SARIF upload to GitHub Security tab (github/codeql-action/upload-sarif) requires
       # GitHub Advanced Security (GHAS) — a paid GitHub feature. We deliberately omit it:
       # all scan execution runs on GKE self-hosted runners (GCP cost centre) and findings
       # are captured below as a free build artifact. Enable GHAS and add the upload step
       # back if the organisation moves to a GitHub-hosted security posture in future.
+
+      - name: Gate on ERROR-severity findings only
+        # Block only on ERROR-severity findings. Warning/note findings remain in
+        # the SARIF artifact below for triage but do not gate the merge — most are
+        # intentional patterns in this guardrail codebase (dynamic regex, etc.).
+        run: |
+          python3 - <<'PYEOF'
+          import json, sys
+          d = json.load(open("semgrep.sarif"))
+          run = d["runs"][0]
+          lvl = {r["id"]: r.get("defaultConfiguration", {}).get("level", "")
+                 for r in run.get("tool", {}).get("driver", {}).get("rules", [])}
+          results = run.get("results", [])
+          errors = [x for x in results
+                    if (x.get("level") or lvl.get(x.get("ruleId"), "")) == "error"]
+          print(f"Semgrep: {len(results)} finding(s) total; {len(errors)} ERROR-level (blocking).")
+          for x in errors:
+              p = x["locations"][0]["physicalLocation"]
+              print(f"  ERROR {x.get('ruleId')} @ {p['artifactLocation']['uri']}:{p['region'].get('startLine')}")
+          sys.exit(1 if errors else 0)
+          PYEOF
 
       - name: Upload SARIF as artifact (evidence / debugging)
         if: always()

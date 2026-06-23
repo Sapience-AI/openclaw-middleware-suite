@@ -63,7 +63,7 @@ function deriveKey(): Buffer {
 function encryptJson(payload: unknown): { iv: string; tag: string; ciphertext: string } {
   const iv = crypto.randomBytes(12);
   const key = deriveKey();
-  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv, { authTagLength: 16 });
   const plaintext = Buffer.from(JSON.stringify(payload), 'utf8');
   const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()]);
   const tag = cipher.getAuthTag();
@@ -80,7 +80,7 @@ function decryptJson(record: StoredRecord): Record<string, unknown> | null {
     const iv = Buffer.from(record.iv, 'base64');
     const tag = Buffer.from(record.tag, 'base64');
     const ciphertext = Buffer.from(record.ciphertext, 'base64');
-    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv, { authTagLength: 16 });
     decipher.setAuthTag(tag);
     const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
     const parsed = JSON.parse(plaintext.toString('utf8'));
@@ -238,10 +238,4 @@ export class BrowserSessionStore {
 
         if (Object.keys(currentHeaders).length > 0) {
           nextParams.headers = currentHeaders;
-        }
-      }
-    }
-
-    return { params: nextParams, injectedFields };
-  }
-}
+        

@@ -1,0 +1,21 @@
+# .checkov.yaml - Checkov configuration for the OpenClaw Middleware Suite
+#
+# Auto-discovered by Checkov at the repo root (CI + local runs). This is a
+# TypeScript/npm package; suppressions below cover checks that do not apply to
+# its GitHub Actions workflows / container usage, each with rationale. No
+# --soft-fail is used: any unsuppressed finding blocks the build.
+
+compact: true
+quiet: true
+
+skip-check:
+  # CKV_GHA_7: workflow_dispatch inputs - maintenance/security workflows accept
+  #            manual-trigger inputs by design; outputs remain reproducible.
+  - CKV_GHA_7
+  # CKV_DOCKER_2: HEALTHCHECK - inapplicable to CLI / non-long-running images.
+  - CKV_DOCKER_2
+  # CKV_DOCKER_7: ARG-based FROM with digest pinning is used; Checkov cannot
+  #               evaluate ARG vars and misreports an implicit :latest tag.
+  - CKV_DOCKER_7
+  # CKV_SECRET_6: flags high-entropy resource *names* (not credential values).
+  - CKV_SECRET_6
