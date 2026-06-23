@@ -40,17 +40,17 @@ permissions:
 
 jobs:
   gitleaks:
-    name: "Gitleaks"
+    name: "gitleaks"
     uses: ./.github/workflows/gitleaks.yml
     secrets: inherit
 
   semgrep:
-    name: "Semgrep"
+    name: "semgrep"
     uses: ./.github/workflows/semgrep.yml
     secrets: inherit
 
   trufflehog:
-    name: "TruffleHog"
+    name: "trufflehog"
     if: |
       github.event_name == 'pull_request' ||
       (github.event_name == 'push' && github.ref == 'refs/heads/main')
@@ -58,13 +58,13 @@ jobs:
     secrets: inherit
 
   checkov:
-    name: "Checkov"
+    name: "checkov"
     if: github.event_name == 'pull_request'
     uses: ./.github/workflows/checkov.yml
     secrets: inherit
 
   pre-commit:
-    name: "Pre-commit + Gitleaks history"
+    name: "pre-commit"
     if: github.event_name == 'pull_request'
     uses: ./.github/workflows/security-precommit.yml
     secrets: inherit
