@@ -4,7 +4,7 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *     https://www.apache.org/licenses/LICENSE-2.0
  */
 
 /**
@@ -104,17 +104,22 @@ export async function isOpenClawInstalled(): Promise<boolean> {
  * falls back to file I/O when running from the CLI.
  */
 export async function loadOpenClawConfig(): Promise<OpenClawConfig | null> {
-  // Gateway context — use the runtime's cached config snapshot.
-  // Deep-clone the result: the gateway may return a frozen/sealed object
-  // and callers (flushToOpenClaw, cleanOpenclawConfig) need to mutate it.
+  // Gateway context — use the runtime's cached config snapshot via
+  // `current()` (introduced in openclaw 2026.4.27, guaranteed present by
+  // our `peerDependencies.openclaw >= 2026.5.3` floor). The snapshot is
+  // frozen/readonly, so deep-clone before returning to callers
+  // (flushToOpenClaw, cleanOpenclawConfig) that need to mutate.
   if (_runtime) {
     try {
-      const snapshot = _runtime.config.loadConfig();
-      return JSON.parse(JSON.stringify(snapshot)) as OpenClawConfig;
+      const snapshot = _runtime.config.current();
+      if (snapshot) {
+        return JSON.parse(JSON.stringify(snapshot)) as OpenClawConfig;
+      }
     } catch (err) {
-      logger.warn('[config-manager] runtime.config.loadConfig() failed, falling back to file I/O', {
-        error: err,
-      });
+      logger.warn(
+        '[config-manager] runtime config snapshot read failed, falling back to file I/O',
+        { error: err }
+      );
     }
   }
 
@@ -136,21 +141,48 @@ export async function loadOpenClawConfig(): Promise<OpenClawConfig | null> {
  * Uses the gateway runtime API when running in-process (atomic writes,
  * backup rotation, schema validation, listener notification), falls back
  * to file I/O when running from the CLI.
+ *
+ * `afterWrite` controls openclaw's post-write behavior on >= 2026.4.27:
+ *   - `'auto'` (default): the gateway's reload planner decides hot-reload
+ *     vs. restart based on which paths changed.
+ *   - `'restart'`: force a clean gateway restart. Required for paths that
+ *     openclaw classifies as hot-reloadable but where the hot-reload does
+ *     not propagate into already-captured `api.config` references held by
+ *     plugin runtimes (e.g. `agents.defaults.compaction.model` —
+ *     ContextEditingMiddleware reads it from `api.config` but openclaw's
+ *     hot-reload does not refresh that reference). When `'restart'` is
+ *     used, a `reason` string should be supplied for telemetry.
  */
-export async function saveOpenClawConfig(config: OpenClawConfig): Promise<void> {
-  // Gateway context — use atomic writeConfigFile
+export async function saveOpenClawConfig(
+  config: OpenClawConfig,
+  options?: { afterWrite?: 'auto' | 'restart'; reason?: string }
+): Promise<void> {
+  const afterWriteMode = options?.afterWrite ?? 'auto';
+  const afterWritePolicy =
+    afterWriteMode === 'restart'
+      ? {
+          mode: 'restart' as const,
+          reason: options?.reason ?? 'sapience-middleware-suite: forced restart on config write',
+        }
+      : { mode: 'auto' as const };
+
+  // Gateway context — atomic write with backup rotation, schema validation,
+  // and listener notification via `replaceConfigFile()` (introduced in
+  // openclaw 2026.4.27, guaranteed present by our peerDep floor).
   if (_runtime) {
     try {
-      await _runtime.config.writeConfigFile(config as Record<string, unknown>);
-      logger.info('OpenClaw config saved via runtime API');
+      await _runtime.config.replaceConfigFile({
+        nextConfig: config as Record<string, unknown>,
+        afterWrite: afterWritePolicy,
+      });
+      logger.info('OpenClaw config saved via runtime API (replaceConfigFile)', {
+        afterWrite: afterWriteMode,
+      });
       return;
     } catch (err) {
-      logger.warn(
-        '[config-manager] runtime.config.writeConfigFile() failed, falling back to file I/O',
-        {
-          error: err,
-        }
-      );
+      logger.warn('[config-manager] runtime config write failed, falling back to file I/O', {
+        error: err,
+      });
     }
   }
 
@@ -273,7 +305,6 @@ export async function getPluginMiddlewaresConfig(): Promise<Record<string, boole
     'context-editing': false,
     'model-routing': false,
     guardrail: false,
-    'output-guardrail': false,
     'pii-sanitizer': false,
     'tool-call-limit': false,
   };
@@ -307,7 +338,7 @@ export function getPluginMiddlewaresConfigSync(): Record<string, boolean> {
 
     if (_runtime) {
       try {
-        config = _runtime.config.loadConfig();
+        config = _runtime.config.current();
       } catch {
         // fall through to file I/O
       }
@@ -337,7 +368,6 @@ export function getPluginMiddlewaresConfigSync(): Record<string, boolean> {
     'context-editing': false,
     'model-routing': false,
     guardrail: false,
-    'output-guardrail': false,
     'pii-sanitizer': false,
     'tool-call-limit': false,
   };

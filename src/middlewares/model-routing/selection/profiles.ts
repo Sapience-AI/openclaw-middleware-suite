@@ -14,13 +14,12 @@
  *
  * Ported from ClawRouter's profile concept:
  *  - ECO:     Cheapest models per tier (cost-optimized)
- *  - AUTO:    Balanced (default — uses config tier assignments)
  *  - PREMIUM: Best quality per tier
  *  - AGENTIC: Tool-optimized per tier (best tool-calling models)
  *
  * Selected via:
  *  - Request header: X-Router-Profile: eco
- *  - Config default: model-routing.defaultProfile: "auto"
+ *  - Config default: model-routing.defaultProfile: "eco"
  *  - CLI: sai router config --set-profile premium
  */
 
@@ -31,9 +30,9 @@ import type { CatalogModel } from '../storage/model-catalog.js';
 // Profile type
 // ---------------------------------------------------------------------------
 
-export type RoutingProfile = 'eco' | 'auto' | 'premium' | 'agentic';
+export type RoutingProfile = 'eco' | 'premium' | 'agentic';
 
-export const VALID_PROFILES: RoutingProfile[] = ['eco', 'auto', 'premium', 'agentic'];
+export const VALID_PROFILES: RoutingProfile[] = ['eco', 'premium', 'agentic'];
 
 // ---------------------------------------------------------------------------
 // Static profile tier configs (used when no discovered models available)
@@ -45,12 +44,6 @@ export const PROFILE_CONFIGS: Record<RoutingProfile, Record<Tier, TierModelConfi
     STANDARD: { primary: 'gpt-4o-mini', fallbacks: ['gpt-4o'] },
     COMPLEX: { primary: 'gpt-4o', fallbacks: ['claude-sonnet-4-6'] },
     REASONING: { primary: 'gpt-4o', fallbacks: ['o3'] },
-  },
-  auto: {
-    SIMPLE: { primary: 'gpt-4o-mini', fallbacks: [] },
-    STANDARD: { primary: 'gpt-4o', fallbacks: [] },
-    COMPLEX: { primary: 'claude-sonnet-4-6', fallbacks: ['gpt-4o'] },
-    REASONING: { primary: 'o3', fallbacks: ['claude-opus-4-6'] },
   },
   premium: {
     SIMPLE: { primary: 'gpt-4o', fallbacks: ['gpt-4o-mini'] },
@@ -72,7 +65,6 @@ export const PROFILE_CONFIGS: Record<RoutingProfile, Record<Tier, TierModelConfi
 
 export const PROFILE_DESCRIPTIONS: Record<RoutingProfile, string> = {
   eco: 'Cost-optimized — uses cheapest models per tier',
-  auto: 'Balanced — default tier assignments',
   premium: 'Quality-optimized — uses best models per tier',
   agentic: 'Tool-optimized — prefers models with strong tool calling',
 };
@@ -90,9 +82,6 @@ export function generateProfileFromDiscovered(
   discoveredModels: DiscoveredModel[],
   baseTiers: Record<Tier, TierModelConfig>
 ): Record<Tier, TierModelConfig> {
-  // If AUTO, just use the base (configured) tiers
-  if (profile === 'auto') return baseTiers;
-
   // If no discovered models, use static configs
   if (discoveredModels.length === 0) return PROFILE_CONFIGS[profile];
 
@@ -209,7 +198,6 @@ function buildAgenticProfile(
  *
  * Strategy per profile:
  *  - ECO:     cheapest model per tier (sorted by input price)
- *  - AUTO:    balanced — mid-price for simple/standard, pricier for complex/reasoning
  *  - PREMIUM: most expensive (highest quality) per tier
  *  - AGENTIC: best tool-calling models (function calling + tool choice), priciest first
  *
@@ -233,9 +221,6 @@ export function buildProfileFromCatalog(
       return buildCatalogPremium(byPriceDesc, reasoningByPriceDesc);
     case 'agentic':
       return buildCatalogAgentic(byPriceDesc, reasoningByPriceDesc);
-    case 'auto':
-    default:
-      return buildCatalogAuto(byPrice, byPriceDesc, reasoningByPriceDesc);
   }
 }
 
@@ -257,27 +242,6 @@ function buildCatalogEco(byPrice: CatalogModel[]): Record<Tier, TierModelConfig>
     STANDARD: { primary: second.displayName, fallbacks: pickFallback(second, byPrice) },
     COMPLEX: { primary: mid.displayName, fallbacks: pickFallback(mid, byPrice) },
     REASONING: { primary: mid.displayName, fallbacks: pickFallback(mid, byPrice) },
-  };
-}
-
-function buildCatalogAuto(
-  byPrice: CatalogModel[],
-  byPriceDesc: CatalogModel[],
-  reasoningDesc: CatalogModel[]
-): Record<Tier, TierModelConfig> {
-  const cheap = byPrice[0];
-  const mid = byPrice[Math.floor(byPrice.length / 2)] || cheap;
-  const pricey = byPriceDesc[0];
-  const bestReasoning = reasoningDesc[0] || pricey;
-
-  return {
-    SIMPLE: { primary: cheap.displayName, fallbacks: [] },
-    STANDARD: { primary: mid.displayName, fallbacks: pickFallback(mid, byPrice) },
-    COMPLEX: { primary: pricey.displayName, fallbacks: pickFallback(pricey, byPriceDesc) },
-    REASONING: {
-      primary: bestReasoning.displayName,
-      fallbacks: pickFallback(bestReasoning, byPriceDesc),
-    },
   };
 }
 
@@ -367,9 +331,6 @@ export function buildProfileFromDiscovered(
       return discoveredPremium(byPriceDesc, reasoningByPriceDesc);
     case 'agentic':
       return discoveredAgentic(byPriceDesc, reasoningByPriceDesc);
-    case 'auto':
-    default:
-      return discoveredAuto(byPrice, byPriceDesc, reasoningByPriceDesc);
   }
 }
 
@@ -389,27 +350,6 @@ function discoveredEco(byPrice: DiscoveredModel[]): Record<Tier, TierModelConfig
     STANDARD: { primary: second.id, fallbacks: pickDiscoveredFallback(second, byPrice) },
     COMPLEX: { primary: mid.id, fallbacks: pickDiscoveredFallback(mid, byPrice) },
     REASONING: { primary: mid.id, fallbacks: pickDiscoveredFallback(mid, byPrice) },
-  };
-}
-
-function discoveredAuto(
-  byPrice: DiscoveredModel[],
-  byPriceDesc: DiscoveredModel[],
-  reasoningDesc: DiscoveredModel[]
-): Record<Tier, TierModelConfig> {
-  const cheap = byPrice[0];
-  const mid = byPrice[Math.floor(byPrice.length / 2)] || cheap;
-  const pricey = byPriceDesc[0];
-  const bestReasoning = reasoningDesc[0] || pricey;
-
-  return {
-    SIMPLE: { primary: cheap.id, fallbacks: [] },
-    STANDARD: { primary: mid.id, fallbacks: pickDiscoveredFallback(mid, byPrice) },
-    COMPLEX: { primary: pricey.id, fallbacks: pickDiscoveredFallback(pricey, byPriceDesc) },
-    REASONING: {
-      primary: bestReasoning.id,
-      fallbacks: pickDiscoveredFallback(bestReasoning, byPriceDesc),
-    },
   };
 }
 

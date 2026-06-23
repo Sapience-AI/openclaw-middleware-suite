@@ -85,12 +85,14 @@ export function scoreNestedListDepth(text: string): DimensionScore {
  * 0 → 0, 1 → 0.3, 2 → 0.6, 3+ → 0.9
  */
 export function scoreConditionalLogic(text: string): DimensionScore {
+  // Bounded `.{0,200}` prevents polynomial ReDoS on long inputs that contain
+  // "if " / "when " but never the closing keyword (CodeQL js/polynomial-redos).
   const patterns = [
-    /if\s.+\s*then/gi,
+    /if\s.{0,200}then/gi,
     /otherwise/gi,
     /unless/gi,
     /depending on/gi,
-    /when\s.+\s*happens/gi,
+    /when\s.{0,200}happens/gi,
     /in case/gi,
     /provided that/gi,
     /assuming/gi,
@@ -170,7 +172,9 @@ export function scoreConstraintDensity(text: string): DimensionScore {
     /cannot exceed/gi,
     /within \d+/gi,
     /between \w+ and \w+/gi,
-    /O\([^)]+\)/g,
+    // Bounded {1,100} prevents polynomial ReDoS on inputs starting with `O(`
+    // but never closing (CodeQL js/polynomial-redos).
+    /O\([^)]{1,100}\)/g,
   ];
 
   let constraintCount = 0;

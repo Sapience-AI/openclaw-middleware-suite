@@ -4,7 +4,7 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *     https://www.apache.org/licenses/LICENSE-2.0
  */
 
 /**
@@ -34,6 +34,7 @@ import {
   CompactionTrigger,
 } from './types.js';
 import { logger } from '../../shared/Logger.js';
+import { ICC_EXTRACTION_MARKER } from '../../shared/icc-detection.js';
 import { diag } from './diagnostic.js';
 import path from 'path';
 import os from 'os';
@@ -146,8 +147,84 @@ const LLM_EXTRACTION_SYSTEM_PROMPT = DEFAULT_ICC_SYSTEM_PROMPT;
  * as separate fields in the UI/CLI without the user having to stitch them
  * together inside a single textarea.
  */
-function composeExtractionPrompt(instructions: string, schema: string, transcript: string): string {
-  return `${instructions}\n\nReturn ONLY valid JSON matching this schema (no markdown fences, no commentary):\n${schema}\n\nTRANSCRIPT:\n${transcript}`;
+function composeExtractionPrompt(
+  instructions: string,
+  schema: string,
+  transcript: string,
+  options: { includeMarker: boolean } = { includeMarker: false }
+): string {
+  // ICC_EXTRACTION_MARKER is a sentinel for Model Routing's scoring override:
+  // when the call is going through MR (target provider = "sai-router"), the
+  // marker tells MR to force SIMPLE tier instead of scoring the transcript
+  // content. MR also strips the marker before forwarding upstream, so the
+  // LLM never sees it.
+  //
+  // For non-MR targets (e.g., direct anthropic/openai), we omit the marker
+  // entirely — it would just be unexplained noise in the LLM prompt that
+  // could (rarely) confuse the model or get echoed back.
+  const body = `${instructions}\n\nReturn ONLY valid JSON matching this schema (no markdown fences, no commentary):\n${schema}\n\nTRANSCRIPT:\n${transcript}`;
+  return options.includeMarker ? `${ICC_EXTRACTION_MARKER}\n\n${body}` : body;
+}
+
+/** A single LLM target — provider/model pair, or empty for openclaw default. */
+interface ExtractionTarget {
+  provider?: string;
+  model?: string;
+}
+
+/**
+ * Resolve LLM targets for ICC extraction calls, in priority order.
+ *
+ *   1. `agents.defaults.compaction.model` — the user's explicit compaction
+ *      model override (set via `sai context-editing model --set`, the
+ *      init wizard, or the dashboard).
+ *   2. `agents.defaults.model.primary` — the agent's primary chat model,
+ *      used as a fallback when (1) is unset or fails at runtime.
+ *
+ * Honoring (1) lets the user route compaction through a cheaper / faster
+ * model than chat. Falling back to (2) on failure means a misconfigured
+ * compaction model (wrong id, bad API key, provider down) silently
+ * downgrades to the primary model instead of degrading all the way to
+ * regex extraction.
+ *
+ * Returns up to 2 targets, deduplicated. Targets without a `provider/model`
+ * separator are emitted as `{}` so openclaw falls back to its own default
+ * model resolution for that attempt.
+ */
+function resolveExtractionTargets(api: PluginApiForLLM): ExtractionTarget[] {
+  const cfgAgents = (api.config as Record<string, unknown>)?.agents as
+    | Record<string, unknown>
+    | undefined;
+  const cfgDefaults = cfgAgents?.defaults as Record<string, unknown> | undefined;
+  const compactionModel = (cfgDefaults?.compaction as Record<string, unknown>)?.model as
+    | string
+    | undefined;
+  const primaryModel = (cfgDefaults?.model as Record<string, unknown>)?.primary as
+    | string
+    | undefined;
+
+  const seen = new Set<string>();
+  const out: ExtractionTarget[] = [];
+  for (const raw of [compactionModel, primaryModel]) {
+    if (!raw) continue;
+    const key = raw;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (raw.includes('/')) {
+      const slashIdx = raw.indexOf('/');
+      out.push({ provider: raw.slice(0, slashIdx), model: raw.slice(slashIdx + 1) });
+    } else {
+      // Malformed (no "provider/model" separator) — skip rather than emit
+      // a half-resolved target. Openclaw will use its default model when
+      // the entire targets list is empty.
+    }
+  }
+  return out;
+}
+
+/** True iff the resolved provider routes through MR (sai-router/*). */
+function targetUsesMR(target: ExtractionTarget): boolean {
+  return target.provider === 'sai-router';
 }
 
 export class ContextCurator {
@@ -282,57 +359,72 @@ export class ContextCurator {
       await fs.mkdir(tmpDir, { recursive: true });
       const sessionFile = path.join(tmpDir, 'session.jsonl');
 
-      const prompt = composeExtractionPrompt(instructions, schema, transcript);
+      // Try each target in order: compaction.model first, then primary as
+      // fallback. Marker is only included for sai-router/* targets so MR
+      // can detect-and-strip it.
+      const targets = resolveExtractionTargets(api);
+      const attempts: ExtractionTarget[] = targets.length > 0 ? targets : [{}];
+      let lastErr: unknown = new Error('No extraction targets resolved');
 
-      const cfgAgents = (api.config as Record<string, unknown>)?.agents as
-        | Record<string, unknown>
-        | undefined;
-      const cfgDefaults = cfgAgents?.defaults as Record<string, unknown> | undefined;
-      const primaryModel = (cfgDefaults?.model as Record<string, unknown>)?.primary as
-        | string
-        | undefined;
-      let resolvedProvider: string | undefined;
-      let resolvedModel: string | undefined;
-      if (primaryModel && primaryModel.includes('/')) {
-        const slashIdx = primaryModel.indexOf('/');
-        resolvedProvider = primaryModel.slice(0, slashIdx);
-        resolvedModel = primaryModel.slice(slashIdx + 1);
+      for (let i = 0; i < attempts.length; i++) {
+        const target = attempts[i];
+        const isFallback = i > 0;
+        try {
+          const prompt = composeExtractionPrompt(instructions, schema, transcript, {
+            includeMarker: targetUsesMR(target),
+          });
+          const result = await api.runtime.agent.runEmbeddedPiAgent({
+            sessionId: runId,
+            sessionFile,
+            workspaceDir: os.tmpdir(),
+            prompt,
+            timeoutMs: 30_000,
+            runId,
+            disableTools: true,
+            streamParams: { temperature: 0.2, maxTokens: 4000 },
+            ...(target.provider ? { provider: target.provider } : {}),
+            ...(target.model ? { model: target.model } : {}),
+          });
+
+          const text = (result.payloads ?? [])
+            .filter((p) => !p.isError && !p.isReasoning && typeof p.text === 'string')
+            .map((p) => p.text ?? '')
+            .join('\n')
+            .trim();
+
+          if (!text) throw new Error('LLM returned empty response');
+
+          const jsonText = this.stripCodeFences(text);
+          const parsed = JSON.parse(jsonText);
+
+          if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+            throw new Error('Parsed output is not a JSON object');
+          }
+
+          // Coerce into Record<string, unknown[]> — only keep array-valued keys.
+          const out: Record<string, unknown[]> = {};
+          for (const [key, val] of Object.entries(parsed as Record<string, unknown>)) {
+            if (Array.isArray(val)) out[key] = val;
+          }
+          if (isFallback) {
+            logger.info('[ContextCurator] custom-prompt extraction succeeded on fallback target', {
+              fallbackProvider: target.provider,
+              fallbackModel: target.model,
+            });
+          }
+          return out;
+        } catch (err) {
+          lastErr = err;
+          diag('extractViaCustomPrompt: target attempt failed', {
+            attemptIndex: i,
+            attemptProvider: target.provider,
+            attemptModel: target.model,
+            error: err instanceof Error ? err.message : String(err),
+          });
+          // Loop continues to the next target.
+        }
       }
-
-      const result = await api.runtime.agent.runEmbeddedPiAgent({
-        sessionId: runId,
-        sessionFile,
-        workspaceDir: os.tmpdir(),
-        prompt,
-        timeoutMs: 30_000,
-        runId,
-        disableTools: true,
-        streamParams: { temperature: 0.2, maxTokens: 4000 },
-        ...(resolvedProvider ? { provider: resolvedProvider } : {}),
-        ...(resolvedModel ? { model: resolvedModel } : {}),
-      });
-
-      const text = (result.payloads ?? [])
-        .filter((p) => !p.isError && !p.isReasoning && typeof p.text === 'string')
-        .map((p) => p.text ?? '')
-        .join('\n')
-        .trim();
-
-      if (!text) throw new Error('LLM returned empty response');
-
-      const jsonText = this.stripCodeFences(text);
-      const parsed = JSON.parse(jsonText);
-
-      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-        throw new Error('Parsed output is not a JSON object');
-      }
-
-      // Coerce into Record<string, unknown[]> — only keep array-valued keys.
-      const out: Record<string, unknown[]> = {};
-      for (const [key, val] of Object.entries(parsed as Record<string, unknown>)) {
-        if (Array.isArray(val)) out[key] = val;
-      }
-      return out;
+      throw lastErr;
     } finally {
       try {
         await fs.rm(tmpDir, { recursive: true, force: true });
@@ -365,84 +457,110 @@ export class ContextCurator {
       await fs.mkdir(tmpDir, { recursive: true });
       const sessionFile = path.join(tmpDir, 'session.jsonl');
 
-      const prompt = composeExtractionPrompt(
-        LLM_EXTRACTION_SYSTEM_PROMPT,
-        DEFAULT_ICC_SCHEMA_JSON,
-        transcript
-      );
+      // Try each target in order: compaction.model first, then primary as
+      // fallback. Marker is only included for sai-router/* targets so MR
+      // can detect-and-strip it.
+      //
+      // Without explicit provider/model, OpenClaw defaults to openai/gpt-5.4
+      // which requires an OpenAI API key the user may not have. The empty
+      // sentinel `[{}]` triggers that default path only when no targets
+      // resolved at all (unconfigured install).
+      const targets = resolveExtractionTargets(api);
+      const attempts: ExtractionTarget[] = targets.length > 0 ? targets : [{}];
+      let lastErr: unknown = null;
 
-      // Resolve model from config — without explicit provider/model, OpenClaw
-      // defaults to openai/gpt-5.4 which requires an OpenAI API key the user
-      // may not have.  Read the agent's primary model from the live config.
-      const cfgAgents = (api.config as Record<string, unknown>)?.agents as
-        | Record<string, unknown>
-        | undefined;
-      const cfgDefaults = cfgAgents?.defaults as Record<string, unknown> | undefined;
-      const primaryModel = (cfgDefaults?.model as Record<string, unknown>)?.primary as
-        | string
-        | undefined;
-      let resolvedProvider: string | undefined;
-      let resolvedModel: string | undefined;
-      if (primaryModel && primaryModel.includes('/')) {
-        const slashIdx = primaryModel.indexOf('/');
-        resolvedProvider = primaryModel.slice(0, slashIdx);
-        resolvedModel = primaryModel.slice(slashIdx + 1);
+      for (let i = 0; i < attempts.length; i++) {
+        const target = attempts[i];
+        const isFallback = i > 0;
+        try {
+          const prompt = composeExtractionPrompt(
+            LLM_EXTRACTION_SYSTEM_PROMPT,
+            DEFAULT_ICC_SCHEMA_JSON,
+            transcript,
+            { includeMarker: targetUsesMR(target) }
+          );
+
+          diag('extractViaLLM: calling runEmbeddedPiAgent', {
+            transcriptLength: transcript.length,
+            runId,
+            attemptIndex: i,
+            attemptProvider: target.provider,
+            attemptModel: target.model,
+            isFallback,
+          });
+
+          const result = await api.runtime.agent.runEmbeddedPiAgent({
+            sessionId: runId,
+            sessionFile,
+            workspaceDir: os.tmpdir(),
+            prompt,
+            timeoutMs: 30_000,
+            runId,
+            disableTools: true,
+            streamParams: { temperature: 0.2, maxTokens: 4000 },
+            ...(target.provider ? { provider: target.provider } : {}),
+            ...(target.model ? { model: target.model } : {}),
+          });
+
+          // Extract text from payloads — skip error/reasoning blocks
+          const text = (result.payloads ?? [])
+            .filter((p) => !p.isError && !p.isReasoning && typeof p.text === 'string')
+            .map((p) => p.text ?? '')
+            .join('\n')
+            .trim();
+
+          if (!text) {
+            // Treat empty response as a transient failure on this target so
+            // the next target gets a chance. Throwing routes through the
+            // catch-and-continue branch below.
+            throw new Error('LLM returned empty response');
+          }
+
+          // Strip code fences if the model wrapped the output
+          const jsonText = this.stripCodeFences(text);
+
+          diag('extractViaLLM: raw LLM output', {
+            textLength: text.length,
+            jsonTextLength: jsonText.length,
+          });
+
+          // Parse JSON — failure here is unlikely to be model-target-specific
+          // (more often a malformed prompt or schema), so we surface null
+          // immediately rather than retrying with the fallback target.
+          let parsed: LLMExtractionResult;
+          try {
+            parsed = JSON.parse(jsonText);
+          } catch (parseErr) {
+            logger.warn('[ContextCurator] Failed to parse LLM JSON output', {
+              error: parseErr,
+              rawText: jsonText.slice(0, 200),
+            });
+            return null;
+          }
+
+          if (isFallback) {
+            logger.info('[ContextCurator] LLM extraction succeeded on fallback target', {
+              fallbackProvider: target.provider,
+              fallbackModel: target.model,
+            });
+          }
+
+          // Validate and map to our types
+          return this.mapLLMResult(parsed);
+        } catch (err) {
+          lastErr = err;
+          diag('extractViaLLM: target attempt failed', {
+            attemptIndex: i,
+            attemptProvider: target.provider,
+            attemptModel: target.model,
+            error: err instanceof Error ? err.message : String(err),
+          });
+          // Loop continues to the next target.
+        }
       }
-
-      diag('extractViaLLM: calling runEmbeddedPiAgent', {
-        transcriptLength: transcript.length,
-        runId,
-        resolvedProvider,
-        resolvedModel,
-      });
-
-      const result = await api.runtime.agent.runEmbeddedPiAgent({
-        sessionId: runId,
-        sessionFile,
-        workspaceDir: os.tmpdir(),
-        prompt,
-        timeoutMs: 30_000,
-        runId,
-        disableTools: true,
-        streamParams: { temperature: 0.2, maxTokens: 4000 },
-        ...(resolvedProvider ? { provider: resolvedProvider } : {}),
-        ...(resolvedModel ? { model: resolvedModel } : {}),
-      });
-
-      // Extract text from payloads — skip error/reasoning blocks
-      const text = (result.payloads ?? [])
-        .filter((p) => !p.isError && !p.isReasoning && typeof p.text === 'string')
-        .map((p) => p.text ?? '')
-        .join('\n')
-        .trim();
-
-      if (!text) {
-        logger.warn('[ContextCurator] LLM returned empty response');
-        return null;
-      }
-
-      // Strip code fences if the model wrapped the output
-      const jsonText = this.stripCodeFences(text);
-
-      diag('extractViaLLM: raw LLM output', {
-        textLength: text.length,
-        jsonTextLength: jsonText.length,
-      });
-
-      // Parse JSON
-      let parsed: LLMExtractionResult;
-      try {
-        parsed = JSON.parse(jsonText);
-      } catch (parseErr) {
-        logger.warn('[ContextCurator] Failed to parse LLM JSON output', {
-          error: parseErr,
-          rawText: jsonText.slice(0, 200),
-        });
-        return null;
-      }
-
-      // Validate and map to our types
-      return this.mapLLMResult(parsed);
+      // All targets exhausted — surface the last error so curate() falls
+      // through to regex extraction.
+      throw lastErr instanceof Error ? lastErr : new Error('All extraction targets failed');
     } finally {
       // Clean up temp directory
       try {

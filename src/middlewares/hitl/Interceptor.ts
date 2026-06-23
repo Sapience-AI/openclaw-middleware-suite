@@ -5,7 +5,7 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *     https://www.apache.org/licenses/LICENSE-2.0
  *
  * This file is derived from the Reins project (https://github.com/pegasi-ai/reins)
  * and has been modified for use in the OpenClaw Middleware Suite.
@@ -53,7 +53,7 @@ function matchesGlob(pattern: string, str: string): boolean {
 
   /* eslint-disable no-control-regex -- \x00 used as temporary placeholder during glob→regex conversion */
   const regex = pat
-    .replace(/[.+^${}()|[\]]/g, '\\$&') // escape regex specials
+    .replace(/[.+^${}()|[\]\\]/g, '\\$&') // escape regex specials (incl. backslash)
     .replace(/\*\*/g, '\x00') // placeholder for **
     .replace(/\*/g, '[^/]*') // * → any non-slash chars
     .replace(/\?/g, '[^/]') // ? → single non-slash char

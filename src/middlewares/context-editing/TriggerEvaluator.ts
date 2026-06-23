@@ -4,7 +4,7 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *     https://www.apache.org/licenses/LICENSE-2.0
  */
 
 /**
@@ -128,6 +128,29 @@ export class TriggerEvaluator {
   syncSessionStats(sessionKey: string, messageCount: number, estimatedTokens: number): void {
     const buffer = this.getOrCreateBuffer(sessionKey);
 
+    // First-time observation: anchor the baseline to the current live
+    // counts. Without this, a session that already has messages when CE
+    // first sees it (CE enabled mid-session, gateway restart, plugin
+    // reload, disable→re-enable) computes a delta against `baseline=0`
+    // and trips the threshold immediately on the very next turn —
+    // counting all historical messages as "new". Anchoring the first
+    // observation matches the post-compaction semantic in `resetSession`
+    // where `baseline = messageCount`. Fresh sessions are unaffected:
+    // at Turn 1's before_model_resolve the JSONL has 0 user messages
+    // (the just-sent message hasn't been written yet), so the anchor
+    // is trivially 0 and the delta-from-zero progression below is
+    // unchanged.
+    if (!buffer.hasBeenSynced) {
+      buffer.baselineMessageCount = messageCount;
+      buffer.baselineTokens = estimatedTokens;
+      buffer.hasBeenSynced = true;
+      logger.info('[TriggerEvaluator] First sync — anchoring baseline to current counts', {
+        sessionKey,
+        baselineMessageCount: messageCount,
+        baselineTokens: estimatedTokens,
+      });
+    }
+
     // Detect session reset (/new, /reset) or post-compaction context
     // reduction: the live message count dropped below the baseline.
     // Reset baselines so delta-based thresholds start fresh — otherwise
@@ -224,6 +247,7 @@ export class TriggerEvaluator {
         compactionsSinceReset: 0,
         baselineMessageCount: 0,
         baselineTokens: 0,
+        hasBeenSynced: false,
       };
       this.buffers.set(sessionKey, buffer);
     }

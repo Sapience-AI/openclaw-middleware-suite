@@ -4,7 +4,7 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *     https://www.apache.org/licenses/LICENSE-2.0
  */
 
 /**
@@ -39,8 +39,30 @@ export interface ModelRoutingPolicyData {
     standardComplex?: number;
     complexReasoning?: number;
   };
-  /** User overrides for tier-to-model mappings */
-  tierOverrides?: Partial<Record<Tier, TierModelConfig>>;
+  /** User overrides for the early-classification override thresholds in
+   *  `ScoringConfig.overrides`. Only the fields the user touched are stored;
+   *  missing fields fall through to `DEFAULT_SCORING_CONFIG.overrides`.
+   *  Named `overrideThresholds` rather than `overrideOverrides` to avoid
+   *  the awkward repetition while keeping the relationship to the
+   *  underlying config-field clear. Inline shape (mirrors the
+   *  `boundaryOverrides` pattern) keeps the field self-documenting on the
+   *  public API surface without having to export `OverrideConfig`. */
+  overrideThresholds?: {
+    /** Messages shorter than this skip scoring and route to SIMPLE. */
+    shortMessageChars?: number;
+    /** Requests larger than this floor to COMPLEX. */
+    largeContextTokens?: number;
+    /** Hits in the formal-logic dimension at or above this force REASONING. */
+    reasoningKeywordMin?: number;
+    /** Floor tier when the request sets `response_format`. */
+    structuredOutputMinTier?: Tier;
+  };
+  /** Per-profile tier-to-model mappings.
+   *  Keyed by RoutingProfile; each value is a partial Tier→TierModelConfig map.
+   *  Profiles absent from this object inherit the runtime default (built via
+   *  `buildProfileFromDiscovered` from the live model catalog). The dashboard
+   *  edits one profile's slot at a time without touching the others. */
+  tierOverridesByProfile?: Partial<Record<RoutingProfile, Partial<Record<Tier, TierModelConfig>>>>;
   /** Model exclusion list */
   exclusions?: string[];
   /** Configured provider connections */
@@ -50,7 +72,9 @@ export interface ModelRoutingPolicyData {
   /** When false, skip the pinning check — every turn re-scores. Default true. */
   sessionPinningEnabled?: boolean;
   /** When false, adapters skip provider prompt-cache markers. Default true.
-   *  Coerced to false in buildConfig when sessionPinningEnabled is false. */
+   *  Independent of `sessionPinningEnabled` — caching pays off on its own
+   *  (provider-side prefix dedup across same-model requests) even without
+   *  the per-session pin. */
   providerCacheEnabled?: boolean;
 
   // ── Bootstrap settings (migrated from plugin_config['model-routing']) ──

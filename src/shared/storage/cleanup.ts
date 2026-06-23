@@ -4,7 +4,7 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *     https://www.apache.org/licenses/LICENSE-2.0
  */
 
 /**
@@ -18,20 +18,18 @@
  *   files       — standalone files to delete
  *   dirs        — directories to remove recursively
  *   storeKeys   — keys to delete from the unified config store
- *   cleanOpenclaw — whether to strip router entries from openclaw.json
  *
- * Uses config-manager for openclaw.json and ConfigStore for the unified
- * store — no direct file reads/writes for config files.
+ * Middlewares with state that doesn't fit the file/dir/store-key shape
+ * (openclaw.json edits, in-memory counters, per-agent auth profiles —
+ * currently all only Model Routing) register a lazy-loaded handler in
+ * `EXTRA_CLEANUP_LOADERS` below. The handler lives inside the owning
+ * middleware's folder so `shared/` stays free of static dependencies on
+ * middleware code and `cleanupMiddleware` doesn't need any
+ * `if (name === '<x>')` branches.
  */
 
-import { existsSync, unlinkSync, rmSync, readdirSync, readFileSync, writeFileSync } from 'fs';
-import { join } from 'path';
+import { existsSync, unlinkSync, rmSync } from 'fs';
 import { logger } from '../Logger.js';
-import {
-  loadOpenClawConfig,
-  saveOpenClawConfig,
-  getOpenClawPaths,
-} from '../../plugin/config-manager.js';
 import { ConfigStore } from './ConfigStore.js';
 import {
   HITL_DIR,
@@ -76,7 +74,6 @@ export type MiddlewareName =
   | 'context-editing'
   | 'model-routing'
   | 'guardrail'
-  | 'output-guardrail'
   | 'pii-sanitizer'
   | 'tool-call-limit';
 
@@ -87,8 +84,6 @@ interface CleanupSpec {
   dirs: string[];
   /** Top-level keys to remove from sapience-ai-suite.json. */
   storeKeys: string[];
-  /** If true, also clean openclaw.json (provider, allowlist, fallbacks). */
-  cleanOpenclaw: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -100,42 +95,35 @@ const CLEANUP_REGISTRY: Record<MiddlewareName, CleanupSpec> = {
     files: [HITL_DECISIONS_FILE, HITL_BROWSER_SESSIONS, HITL_TOTP_FILE],
     dirs: [HITL_DIR],
     storeKeys: [STORE_KEY_HITL],
-    cleanOpenclaw: false,
   },
 
   'context-editing': {
     files: [CTX_EDIT_AUDIT_FILE, CTX_EDIT_DIAGNOSTIC_FILE],
     dirs: [CTX_EDIT_DIR],
     storeKeys: [STORE_KEY_CONTEXT_EDITING],
-    cleanOpenclaw: false,
   },
 
   'model-routing': {
     files: [MODEL_ROUTE_AUDIT_FILE, MODEL_ROUTE_PROXY_LOG, MODEL_ROUTE_CATALOG_CACHE],
     dirs: [MODEL_ROUTE_DIR],
     storeKeys: [STORE_KEY_MODEL_ROUTING],
-    cleanOpenclaw: true,
   },
 
   guardrail: {
-    files: [GUARDRAIL_CONFIG_FILE, GUARDRAIL_AUDIT_FILE],
-    dirs: [GUARDRAIL_DIR],
-    storeKeys: [STORE_KEY_GUARDRAIL],
-    cleanOpenclaw: false,
-  },
-
-  'output-guardrail': {
-    files: [OUTPUT_GUARDRAIL_CONFIG_FILE],
-    dirs: [OUTPUT_GUARDRAIL_DIR],
-    storeKeys: [STORE_KEY_OUTPUT_GUARDRAIL],
-    cleanOpenclaw: false,
+    // Output Guardrail is a sub-feature of Guardrail (its config lives in
+    // `guardrail.outputScrubber` and its hook is gated on Guardrail's
+    // master toggle). The `OUTPUT_GUARDRAIL_*` paths/keys are vestigial
+    // from the standalone-middleware era and are folded here so a
+    // disable-cleanup sweeps any legacy residue from older installs.
+    files: [GUARDRAIL_CONFIG_FILE, GUARDRAIL_AUDIT_FILE, OUTPUT_GUARDRAIL_CONFIG_FILE],
+    dirs: [GUARDRAIL_DIR, OUTPUT_GUARDRAIL_DIR],
+    storeKeys: [STORE_KEY_GUARDRAIL, STORE_KEY_OUTPUT_GUARDRAIL],
   },
 
   'pii-sanitizer': {
     files: [PII_SANITIZER_DLP_FILE, PII_SANITIZER_AUDIT_FILE],
     dirs: [PII_SANITIZER_DIR],
     storeKeys: [STORE_KEY_PII_SANITIZER],
-    cleanOpenclaw: false,
   },
 
   'tool-call-limit': {
@@ -147,19 +135,24 @@ const CLEANUP_REGISTRY: Record<MiddlewareName, CleanupSpec> = {
     ],
     dirs: [TOOL_CALL_LIMIT_DIR],
     storeKeys: [STORE_KEY_TOOL_CALL_LIMIT],
-    cleanOpenclaw: false,
   },
 };
 
 // ---------------------------------------------------------------------------
-// Provider names used in openclaw.json (current + legacy)
+// Per-middleware extras — lazy-loaded handlers for cleanup that doesn't fit
+// the file/dir/store-key shape (e.g. editing openclaw.json, resetting
+// in-memory counters). The handler lives in the middleware's own folder
+// and is dynamically imported so this file stays free of static
+// middleware-code dependencies.
 // ---------------------------------------------------------------------------
 
-const ROUTER_PROVIDER_NAMES = ['sai-router', 'sapience-router'];
+type ExtrasHandler = () => Promise<void>;
+type ExtrasLoader = () => Promise<ExtrasHandler>;
 
-function isRouterRef(value: string): boolean {
-  return ROUTER_PROVIDER_NAMES.some((name) => value.startsWith(`${name}/`));
-}
+const EXTRA_CLEANUP_LOADERS: Partial<Record<MiddlewareName, ExtrasLoader>> = {
+  'model-routing': async () =>
+    (await import('../../middlewares/model-routing/storage/disable-cleanup.js')).runDisableCleanup,
+};
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -188,7 +181,7 @@ export async function cleanupMiddleware(name: MiddlewareName): Promise<void> {
     }
   }
 
-  // ── Remove directories ───────────────────────────────────────────────────
+  // ── Remove directories recursively ───────────────────────────────────────
   for (const dir of spec.dirs) {
     try {
       if (existsSync(dir)) {
@@ -210,123 +203,15 @@ export async function cleanupMiddleware(name: MiddlewareName): Promise<void> {
     }
   }
 
-  // ── Clean openclaw.json (model-routing only) ─────────────────────────────
-  if (spec.cleanOpenclaw) {
-    await cleanOpenclawConfig();
-  }
-}
-
-// ---------------------------------------------------------------------------
-// openclaw.json cleanup — uses config-manager load/save
-// ---------------------------------------------------------------------------
-
-async function cleanOpenclawConfig(): Promise<void> {
-  const loaded = await loadOpenClawConfig();
-  if (!loaded) return;
-
-  // Deep clone — the gateway runtime may return a frozen/sealed config
-  // object. Mutating it directly (delete, property assignment) would
-  // silently fail or throw. Work on a mutable copy instead.
-  const config = JSON.parse(JSON.stringify(loaded)) as Record<string, any>;
-
-  let changed = false;
-
-  // ── Remove provider entries (models.providers) ───────────────────────────
-  const providers = config?.models?.providers;
-  if (providers) {
-    for (const key of ROUTER_PROVIDER_NAMES) {
-      if (providers[key]) {
-        delete providers[key];
-        changed = true;
-        logger.info(`[cleanup] Removed ${key} from models.providers`);
-      }
+  // ── Run the middleware's own extras handler (if registered) ──────────────
+  // No `if (name === '<x>')` branches — the lookup itself is the dispatch.
+  const loader = EXTRA_CLEANUP_LOADERS[name];
+  if (loader) {
+    try {
+      const handler = await loader();
+      await handler();
+    } catch (err) {
+      logger.debug(`[cleanup] Extras handler for ${name} failed (non-fatal)`, { error: err });
     }
-  }
-
-  // ── Remove model allowlist entries (agents.defaults.models) ──────────────
-  const allowlist = config?.agents?.defaults?.models;
-  if (allowlist && typeof allowlist === 'object' && !Array.isArray(allowlist)) {
-    for (const key of Object.keys(allowlist)) {
-      if (isRouterRef(key)) {
-        delete allowlist[key];
-        changed = true;
-      }
-    }
-  }
-
-  // ── Remove fallback references (agents.defaults.model.fallbacks) ─────────
-  const modelDefaults = config?.agents?.defaults?.model;
-  if (modelDefaults) {
-    if (Array.isArray(modelDefaults.fallbacks)) {
-      const before = modelDefaults.fallbacks.length;
-      modelDefaults.fallbacks = modelDefaults.fallbacks.filter(
-        (m: string) => typeof m !== 'string' || !isRouterRef(m)
-      );
-      if (modelDefaults.fallbacks.length !== before) {
-        changed = true;
-        logger.info('[cleanup] Removed router models from model.fallbacks');
-      }
-    }
-
-    // Clear primary if it references the router
-    if (typeof modelDefaults.primary === 'string' && isRouterRef(modelDefaults.primary)) {
-      delete modelDefaults.primary;
-      changed = true;
-      logger.info('[cleanup] Removed router model from model.primary');
-    }
-  }
-
-  if (changed) {
-    await saveOpenClawConfig(config);
-    logger.info('[cleanup] openclaw.json updated');
-  } else {
-    logger.info('[cleanup] openclaw.json — no router entries found to remove');
-  }
-
-  // ── Remove auth profiles from agent stores ───────────────────────────────
-  const { openclawHome } = getOpenClawPaths();
-  cleanAgentAuthProfiles(openclawHome);
-}
-
-// ---------------------------------------------------------------------------
-// Agent auth profile cleanup
-// (auth-profiles.json is per-agent, not managed by config-manager)
-// ---------------------------------------------------------------------------
-
-function cleanAgentAuthProfiles(openclawHome: string): void {
-  const agentsDir = join(openclawHome, 'agents');
-  if (!existsSync(agentsDir)) return;
-
-  try {
-    const agents = readdirSync(agentsDir, { withFileTypes: true })
-      .filter((d) => d.isDirectory())
-      .map((d) => d.name);
-
-    for (const agentId of agents) {
-      const authPath = join(agentsDir, agentId, 'agent', 'auth-profiles.json');
-      if (!existsSync(authPath)) continue;
-
-      try {
-        const store = JSON.parse(readFileSync(authPath, 'utf8'));
-        if (!store?.profiles) continue;
-
-        let changed = false;
-        for (const key of ['sai-router:default', 'sapience-router:default']) {
-          if (store.profiles[key]) {
-            delete store.profiles[key];
-            changed = true;
-          }
-        }
-
-        if (changed) {
-          writeFileSync(authPath, JSON.stringify(store, null, 2));
-          logger.info(`[cleanup] Removed router auth profile for agent: ${agentId}`);
-        }
-      } catch {
-        // Skip unreadable auth stores
-      }
-    }
-  } catch (err) {
-    logger.debug('[cleanup] Agent auth cleanup failed', { error: err });
   }
 }

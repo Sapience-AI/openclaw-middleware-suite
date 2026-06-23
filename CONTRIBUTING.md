@@ -10,6 +10,8 @@ Thank you for your interest in contributing! This guide covers everything you ne
 - [Branch Naming Convention](#branch-naming-convention)
 - [Code Style Guidelines](#code-style-guidelines)
 - [Project Structure](#project-structure)
+- [Contributor sign-off (DCO)](#contributor-sign-off-dco)
+- [Third-party licenses](#third-party-licenses)
 
 ---
 
@@ -251,7 +253,7 @@ Every `.ts` / `.tsx` file under `src/` carries an Apache-2.0 copyright header.
 ## Project Structure
 
 ```
-Openclaw-Middleware-Suite/
+openclaw-middleware-suite/
 ├── src/
 │   ├── index.ts                   # Public root entry + `sai` CLI orchestrator (shebang)
 │   ├── types.ts                   # Shared type definitions (Middleware, MiddlewareResult, …)
@@ -317,6 +319,141 @@ When contributing security-related code:
 4. **Ask for review** if uncertain about security implications
 
 **Report vulnerabilities privately**: email discovery.shariq.ali@sapienceai.co
+
+---
+
+## Contributor sign-off (DCO)
+
+Every commit in every pull request to this repo must include a
+`Signed-off-by:` line. We use the **Developer Certificate of Origin
+v1.1** (DCO) as the inbound contribution agreement — a lightweight
+attestation that you have the right to contribute the patch under
+this project's license (Apache-2.0). No CLA, no lawyers, no signup —
+just a one-line trailer on each commit.
+
+CI rejects any PR whose commits are missing the trailer; see
+[`.github/workflows/dco.yml`](./.github/workflows/dco.yml).
+
+### How to sign off
+
+Pass `-s` (or `--signoff`) when committing:
+
+```bash
+git commit -s -m "fix: typo in README"
+```
+
+This appends a trailer like:
+
+```
+Signed-off-by: Random J Developer <random@developer.example.org>
+```
+
+Use the same name + email you've configured in `git config user.name`
+and `git config user.email` (most editors / IDEs already set these).
+
+If you forgot on the most recent commit, amend it:
+
+```bash
+git commit --amend --signoff
+git push --force-with-lease
+```
+
+If multiple commits in the PR are missing sign-offs, rebase and
+sign each:
+
+```bash
+git rebase HEAD~N --signoff   # N = number of commits to rewrite
+git push --force-with-lease
+```
+
+### What you're attesting to
+
+The DCO v1.1 text — by adding the `Signed-off-by:` trailer you are
+attesting that:
+
+> Developer Certificate of Origin
+> Version 1.1
+>
+> Copyright (C) 2004, 2006 The Linux Foundation and its contributors.
+>
+> Everyone is permitted to copy and distribute verbatim copies of this
+> license document, but changing it is not allowed.
+>
+>
+> Developer's Certificate of Origin 1.1
+>
+> By making a contribution to this project, I certify that:
+>
+> (a) The contribution was created in whole or in part by me and I
+>     have the right to submit it under the open source license
+>     indicated in the file; or
+>
+> (b) The contribution is based upon previous work that, to the best
+>     of my knowledge, is covered under an appropriate open source
+>     license and I have the right under that license to submit that
+>     work with modifications, whether created in whole or in part
+>     by me, under the same open source license (unless I am
+>     permitted to submit under a different license), as indicated
+>     in the file; or
+>
+> (c) The contribution was provided directly to me by some other
+>     person who certified (a), (b) or (c) and I have not modified
+>     it.
+>
+> (d) I understand and agree that this project and the contribution
+>     are public and that a record of the contribution (including all
+>     personal information I submit with it, including my sign-off) is
+>     maintained indefinitely and may be redistributed consistent with
+>     this project or the open source license(s) involved.
+
+Source: <https://developercertificate.org>.
+
+We don't require a CLA or contributor agreement beyond this. If you
+contribute on behalf of a company that requires explicit copyright
+assignment, please open a discussion before sending the PR.
+
+---
+
+## Third-party licenses
+
+`NOTICE` lists every project this suite is **derived from** (Reins,
+Manifest, ClawRouter, OpenClaw Shield, OpenGuardrails) and cites
+per-file Apache §4(b) / MIT attribution headers. In addition, every
+package declared in `package.json` ships under its own license; the
+authoritative text for each transitive dep lives under that package's
+folder in `node_modules/`. Source-only distribution (npm package +
+GitHub source) treats this as sufficient — recipients install the
+deps themselves and inherit each one's license terms directly from
+the upstream registry.
+
+**However, before publishing any artifact that bundles dependencies**,
+generate a `THIRD_PARTY_LICENSES.md` covering every transitive that
+ends up in the artifact. Bundled artifacts include:
+
+- A single-file bundle (e.g. esbuild `--bundle`, ncc, pkg).
+- A Docker / OCI container image with `node_modules/` copied in.
+- A native installer (electron-builder, Tauri bundle, etc.).
+- Anything that distributes the dep code rather than declaring deps
+  for the recipient to install.
+
+Recommended generators (any one is fine — pick what your release
+workflow already has):
+
+```bash
+# Lightweight dump of every dep + license + repository URL
+npx license-checker --production --json > THIRD_PARTY_LICENSES.json
+
+# Spec-quality, pluggable, recommended for compliance audits
+npx licensee --json --license
+
+# Full SBOM-class tooling — overkill for our size today, but correct
+npx oss-review-toolkit analyze
+```
+
+The npm + GitHub release workflows in this repo do **not** currently
+bundle deps, so this section is forward-looking. If you change that —
+add a CI step that regenerates `THIRD_PARTY_LICENSES.md` and fails the
+build when it drifts from the lockfile.
 
 ---
 

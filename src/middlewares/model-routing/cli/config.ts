@@ -4,7 +4,7 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *     https://www.apache.org/licenses/LICENSE-2.0
  */
 
 /**
@@ -13,22 +13,14 @@
 
 import chalk from 'chalk';
 import { ModelRoutingDiscovery } from '../storage/ModelRoutingDiscovery.js';
-import {
-  ModelRoutingPolicyStore,
-  ModelRoutingPolicyData,
-} from '../storage/ModelRoutingPolicyStore.js';
+import { ModelRoutingPolicyStore } from '../storage/ModelRoutingPolicyStore.js';
 import { DEFAULT_SCORING_CONFIG } from '../config.js';
-import {
-  VALID_PROFILES,
-  PROFILE_DESCRIPTIONS,
-  isValidProfile,
-  RoutingProfile,
-} from '../selection/profiles.js';
+import { VALID_PROFILES, PROFILE_DESCRIPTIONS } from '../selection/profiles.js';
 
 export async function routerConfigCommand(opts: {
   setWeight?: string;
   setBoundary?: string;
-  setProfile?: string;
+  setOverride?: string;
   enablePinning?: boolean;
   disablePinning?: boolean;
   enableCache?: boolean;
@@ -48,29 +40,12 @@ export async function routerConfigCommand(opts: {
   }
   if (opts.enablePinning || opts.disablePinning) {
     const enabled = !!opts.enablePinning;
-    const partial: Partial<ModelRoutingPolicyData> = { sessionPinningEnabled: enabled };
-    // Cascade: pinning off forces provider caching off. Persist the coerced
-    // value so sapience-ai-suite.json matches effective behavior.
-    if (!enabled) partial.providerCacheEnabled = false;
-    await ModelRoutingPolicyStore.update(partial);
-    console.log(
-      chalk.green(
-        `Session pinning ${enabled ? 'enabled' : 'disabled'}` +
-          (!enabled ? ' (provider prompt caching also disabled).' : '.')
-      )
-    );
+    await ModelRoutingPolicyStore.update({ sessionPinningEnabled: enabled });
+    console.log(chalk.green(`Session pinning ${enabled ? 'enabled' : 'disabled'}.`));
     return;
   }
   if (opts.enableCache || opts.disableCache) {
     const enabled = !!opts.enableCache;
-    // Pinning must be explicitly enabled for cache-on to stick — default is off.
-    const pinningOn = store.getSessionPinningEnabled() === true;
-    if (enabled && !pinningOn) {
-      console.error(
-        chalk.red('Session pinning is currently off. Enable it first with --enable-pinning.')
-      );
-      process.exit(1);
-    }
     await ModelRoutingPolicyStore.update({ providerCacheEnabled: enabled });
     console.log(chalk.green(`Provider prompt caching ${enabled ? 'enabled' : 'disabled'}.`));
     return;
@@ -105,21 +80,6 @@ export async function routerConfigCommand(opts: {
     return;
   }
 
-  // ── Set profile ─────────────────────────────────────────────────────────
-  if (opts.setProfile) {
-    if (!isValidProfile(opts.setProfile)) {
-      console.error(chalk.red(`Invalid profile: ${opts.setProfile}`));
-      console.error('Valid profiles: ' + VALID_PROFILES.join(', '));
-      process.exit(1);
-    }
-    await ModelRoutingPolicyStore.update({
-      defaultProfile: opts.setProfile as RoutingProfile,
-    });
-    console.log(chalk.green(`Default profile set to: ${opts.setProfile}`));
-    console.log(chalk.dim(PROFILE_DESCRIPTIONS[opts.setProfile as RoutingProfile]));
-    return;
-  }
-
   // ── Set boundary ────────────────────────────────────────────────────────
   if (opts.setBoundary) {
     const parts = opts.setBoundary.split(/\s+/);
@@ -147,6 +107,57 @@ export async function routerConfigCommand(opts: {
     return;
   }
 
+  // ── Set override threshold ─────────────────────────────────────────────
+  // 4 fields, three numeric (`shortMessageChars`, `largeContextTokens`,
+  // `reasoningKeywordMin`) and one tier-string (`structuredOutputMinTier`).
+  // Tier names are normalized to upper-case so users can pass `standard`
+  // or `STANDARD` interchangeably.
+  if (opts.setOverride) {
+    const parts = opts.setOverride.split(/\s+/);
+    if (parts.length !== 2) {
+      console.error(chalk.red('Usage: --set-override "<name> <value>"'));
+      process.exit(1);
+    }
+    const [name, valStr] = parts;
+    const numericFields = [
+      'shortMessageChars',
+      'largeContextTokens',
+      'reasoningKeywordMin',
+    ] as const;
+    const tierFields = ['structuredOutputMinTier'] as const;
+    const validFields = [...numericFields, ...tierFields];
+    if (!validFields.includes(name as (typeof validFields)[number])) {
+      console.error(chalk.red(`Unknown override field: ${name}`));
+      console.error('Valid fields: ' + validFields.join(', '));
+      process.exit(1);
+    }
+    const current = store.getData().overrideThresholds ?? {};
+    const next: Record<string, unknown> = { ...current };
+    if ((numericFields as readonly string[]).includes(name)) {
+      const value = name === 'reasoningKeywordMin' ? parseInt(valStr, 10) : parseFloat(valStr);
+      if (isNaN(value) || value < 0) {
+        console.error(chalk.red('Value must be a non-negative number'));
+        process.exit(1);
+      }
+      next[name] = value;
+    } else {
+      // structuredOutputMinTier — must be a valid Tier
+      const tier = valStr.toUpperCase();
+      const validTiers = ['SIMPLE', 'STANDARD', 'COMPLEX', 'REASONING'];
+      if (!validTiers.includes(tier)) {
+        console.error(chalk.red(`Invalid tier: ${valStr}`));
+        console.error('Valid tiers: ' + validTiers.join(', '));
+        process.exit(1);
+      }
+      next[name] = tier;
+    }
+    await ModelRoutingPolicyStore.update({
+      overrideThresholds: next as Partial<import('../types.js').OverrideConfig>,
+    });
+    console.log(chalk.green(`Set ${name} override to ${next[name]}`));
+    return;
+  }
+
   // ── Display current config ──────────────────────────────────────────────
   const data = store.getData();
 
@@ -156,23 +167,48 @@ export async function routerConfigCommand(opts: {
   console.log(chalk.bold.cyan('='.repeat(70)));
   console.log('');
 
-  // Boundaries
+  // Boundaries — same `<- N` marker for user-overridden values as overrides.
   const b = { ...DEFAULT_SCORING_CONFIG.boundaries, ...data.boundaryOverrides };
+  const bOverride = (key: keyof typeof b) =>
+    data.boundaryOverrides && key in data.boundaryOverrides
+      ? chalk.yellow(` <- ${data.boundaryOverrides[key]}`)
+      : '';
   console.log(chalk.bold('Tier Boundaries:'));
-  console.log(`  SIMPLE    score < ${b.simpleStandard}`);
-  console.log(`  STANDARD  ${b.simpleStandard} <= score < ${b.standardComplex}`);
-  console.log(`  COMPLEX   ${b.standardComplex} <= score < ${b.complexReasoning}`);
+  console.log(`  SIMPLE    score < ${b.simpleStandard}${bOverride('simpleStandard')}`);
+  console.log(
+    `  STANDARD  ${b.simpleStandard} <= score < ${b.standardComplex}${bOverride('standardComplex')}`
+  );
+  console.log(
+    `  COMPLEX   ${b.standardComplex} <= score < ${b.complexReasoning}${bOverride('complexReasoning')}`
+  );
   console.log(`  REASONING score >= ${b.complexReasoning}`);
   console.log('');
 
-  // Overrides
+  // Overrides — show effective values (default + user override). Persisted
+  // overrides are highlighted with a yellow `<- N` marker on the same line
+  // so a quick `sai router config` makes it obvious which thresholds the
+  // user has tuned away from defaults.
+  const effectiveOv = { ...DEFAULT_SCORING_CONFIG.overrides, ...data.overrideThresholds };
+  const ovOverride = (key: keyof typeof effectiveOv) =>
+    data.overrideThresholds && key in data.overrideThresholds
+      ? chalk.yellow(`  <- ${data.overrideThresholds[key]}`)
+      : '';
   console.log(chalk.bold('Hard Overrides:'));
-  console.log(`  Reasoning keyword min: ${DEFAULT_SCORING_CONFIG.overrides.reasoningKeywordMin}`);
-  console.log(`  Large context tokens:  ${DEFAULT_SCORING_CONFIG.overrides.largeContextTokens}`);
-  console.log(`  Short message chars:   ${DEFAULT_SCORING_CONFIG.overrides.shortMessageChars}`);
-  console.log(`  Confidence threshold:  ${DEFAULT_SCORING_CONFIG.confidenceThreshold}`);
-  console.log(`  System prompt scoring: ${DEFAULT_SCORING_CONFIG.systemPromptScoring}`);
-  console.log(`  Scoring message window: ${DEFAULT_SCORING_CONFIG.scoringMessageWindow}`);
+  console.log(
+    `  Reasoning keyword min:    ${effectiveOv.reasoningKeywordMin}${ovOverride('reasoningKeywordMin')}`
+  );
+  console.log(
+    `  Large context tokens:     ${effectiveOv.largeContextTokens}${ovOverride('largeContextTokens')}`
+  );
+  console.log(
+    `  Short message chars:      ${effectiveOv.shortMessageChars}${ovOverride('shortMessageChars')}`
+  );
+  console.log(
+    `  Structured output min:    ${effectiveOv.structuredOutputMinTier}${ovOverride('structuredOutputMinTier')}`
+  );
+  console.log(`  Confidence threshold:     ${DEFAULT_SCORING_CONFIG.confidenceThreshold}`);
+  console.log(`  System prompt scoring:    ${DEFAULT_SCORING_CONFIG.systemPromptScoring}`);
+  console.log(`  Scoring message window:   ${DEFAULT_SCORING_CONFIG.scoringMessageWindow}`);
   console.log('');
 
   // Dimension weights
@@ -207,25 +243,26 @@ export async function routerConfigCommand(opts: {
 
   console.log('');
 
-  // Routing profiles
-  const currentProfile = data.defaultProfile || 'auto';
+  // Routing profiles — all three are always selectable per request from the
+  // OpenClaw model picker. Per-profile tier mappings are edited via
+  // `sai router tiers --profile <eco|premium|agentic> --set "<TIER> <model>"`
+  // or in the dashboard's Model Routing → Config tab.
+  const byProfile = data.tierOverridesByProfile || {};
   console.log(chalk.bold('Routing Profiles:'));
   for (const p of VALID_PROFILES) {
-    const active = p === currentProfile ? chalk.green(' (active)') : '';
-    console.log(`  ${chalk.white(p.padEnd(10))} ${chalk.dim(PROFILE_DESCRIPTIONS[p])}${active}`);
+    const configured = byProfile[p] && Object.keys(byProfile[p]!).length > 0;
+    const status = configured ? chalk.green(' (configured)') : chalk.dim(' (using defaults)');
+    console.log(`  ${chalk.white(p.padEnd(10))} ${chalk.dim(PROFILE_DESCRIPTIONS[p])}${status}`);
   }
   console.log('');
 
-  // Session pinning + provider prompt caching.
-  // Defaults: pinning off, cache follows pinning (both opt-in).
+  // Session pinning + provider prompt caching — independently toggleable.
+  // Defaults: pinning off (opt-in), cache on (default-on; opt-out).
   const pinningOn = data.sessionPinningEnabled === true;
-  const cacheOn = pinningOn && data.providerCacheEnabled !== false;
+  const cacheOn = data.providerCacheEnabled !== false;
   console.log(chalk.bold('Session Pinning & Provider Caching:'));
   console.log(`  Session pinning:          ${pinningOn ? chalk.green('on') : chalk.yellow('off')}`);
-  console.log(
-    `  Provider prompt caching:  ${cacheOn ? chalk.green('on') : chalk.yellow('off')}` +
-      (!pinningOn ? chalk.dim('  (forced off — pinning disabled)') : '')
-  );
+  console.log(`  Provider prompt caching:  ${cacheOn ? chalk.green('on') : chalk.yellow('off')}`);
   console.log('');
 
   console.log(chalk.dim(`Store: ${ModelRoutingPolicyStore.getPath()}`));

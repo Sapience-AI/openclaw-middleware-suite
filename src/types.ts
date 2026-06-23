@@ -4,7 +4,7 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *     https://www.apache.org/licenses/LICENSE-2.0
  *
  * Portions of this file (Decision, SecurityRule, SecurityPolicy,
  * InterventionMetadata, ExecutionContext) are derived from the Reins project
@@ -24,15 +24,21 @@
 // suite binds to today:
 //
 //   beforeToolCall      — tool-call orchestration (HITL, guardrail, PII, limits)
-//   afterToolCall       — post-tool tracking (context-editing token accounting)
-//   beforeAgentStart    — turn start (guardrail prompt-guard + moderation,
-//                         context-editing scheduled compaction)
-//   beforePromptBuild   — prompt finalization (context-editing session stats,
-//                         ICC system-prompt injection)
+//   afterToolCall       — post-tool tracking (extension point — no in-suite
+//                         implementer; MiddlewareRegistry.executeAfterPipeline
+//                         dispatches it for embedded consumers)
+//   beforeAgentStart    — turn start (guardrail prompt-guard + moderation)
+//   beforeModelResolve  — earliest per-turn hook, fires before SM_A opens the
+//                         JSONL (context-editing compaction pipeline runs here)
 //   beforeMessageWrite  — transcript write gate (guardrail write scanner +
-//                         moderation enforcement)
-//   agentEnd            — turn completion (context-editing trigger evaluation)
-//   llmOutput           — per-response hook (context-editing token savings)
+//                         moderation enforcement, output-guardrail scrubber)
+//
+// `before_prompt_build`, `agent_end`, and `llm_output` slots were dropped
+// in 1.0.3: no in-suite middleware implements them, no registry runner
+// dispatches them, and on openclaw ≥ 2026.4.24 the latter two are
+// conversation-access-gated so they no-op for non-bundled plugins anyway.
+// Consumer plugins that need those phases can register their own
+// `api.on(...)` handlers directly against the OpenClaw plugin SDK.
 //
 // All methods except `initialize` and `getStatus` are optional — implement
 // only the surfaces your middleware cares about. Every lifecycle context
@@ -88,6 +94,30 @@ export interface AgentStartContext extends LifecycleContext {
   prompt?: unknown;
   messages?: unknown[];
 }
+
+/**
+ * `before_model_resolve` normalized context — fires very early in each
+ * turn, **before** the gateway opens its SessionManager (SM_A) on the
+ * session JSONL. This is the only ungated, non-deprecated hook on
+ * openclaw 2026.4.27+ that fires before SM_A, so it's the safe window
+ * for middleware compaction (which needs to open its own SM_B and
+ * append-write to the JSONL without forking the DAG).
+ *
+ * The event itself only carries `prompt` and `attachments` for model-
+ * routing decisions; CE doesn't use those. CE reads sessionKey /
+ * sessionId / agentId from the ctx and pulls the actual transcript
+ * directly off disk via `SessionManager.open(sessionFile).getEntries()`.
+ */
+export interface ModelResolveContext extends LifecycleContext {
+  prompt?: unknown;
+  attachments?: unknown[];
+}
+export interface ModelResolveResult {
+  /** Override the model id for this turn (e.g. "anthropic/claude-haiku-4-5"). */
+  modelOverride?: string;
+  /** Override the provider id for this turn (e.g. "anthropic"). */
+  providerOverride?: string;
+}
 export interface AgentStartResult {
   /** Prepend string(s) to the agent's system context (used by the prompt-guard). */
   prependContext?: string[];
@@ -96,15 +126,6 @@ export interface AgentStartResult {
   /** Hard-block the turn from starting. */
   block?: boolean;
   reason?: string;
-}
-
-/** `before_prompt_build` normalized context — fires just before prompt finalization. */
-export interface PromptBuildContext extends LifecycleContext {
-  prompt?: string;
-  messages?: unknown[];
-}
-export interface PromptBuildResult {
-  appendSystemContext?: string;
 }
 
 /** `before_message_write` normalized context — fires before any message is persisted. */
@@ -124,26 +145,6 @@ export interface MessageWriteResult {
   reason?: string;
 }
 
-/** `agent_end` normalized context — fires after the turn completes. */
-export interface AgentEndContext extends LifecycleContext {
-  messages?: unknown[];
-  success?: boolean;
-  durationMs?: number;
-  error?: unknown;
-}
-
-/** `llm_output` normalized context — fires per LLM response. */
-export interface LlmOutputContext extends LifecycleContext {
-  content?: string;
-  usage?: {
-    input?: number;
-    output?: number;
-    total?: number;
-    cacheRead?: number;
-    cacheWrite?: number;
-  };
-}
-
 export interface Middleware {
   readonly name: string;
   readonly version: string;
@@ -155,12 +156,10 @@ export interface Middleware {
 
   // ── OpenClaw lifecycle events ────────────────────────────────────────
   beforeAgentStart?(context: AgentStartContext): Promise<AgentStartResult | void>;
-  beforePromptBuild?(context: PromptBuildContext): Promise<PromptBuildResult | void>;
+  beforeModelResolve?(context: ModelResolveContext): Promise<ModelResolveResult | void>;
   beforeMessageWrite?(
     context: MessageWriteContext
   ): MessageWriteResult | undefined | Promise<MessageWriteResult | undefined>;
-  agentEnd?(context: AgentEndContext): Promise<void>;
-  llmOutput?(context: LlmOutputContext): Promise<void>;
 
   // ── Lifecycle / reporting ────────────────────────────────────────────
   getStatus(): { enabled: boolean; stats?: Record<string, unknown> };

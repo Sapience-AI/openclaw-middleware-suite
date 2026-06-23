@@ -4,7 +4,7 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *     https://www.apache.org/licenses/LICENSE-2.0
  */
 
 /**
@@ -31,7 +31,12 @@ import { ConfigStore as UnifiedStore } from '../../../shared/storage/ConfigStore
 import { STORE_KEY_GUARDRAIL, STORE_KEY_PLUGIN_CONFIG } from '../../../shared/storage/paths.js';
 
 export const DEFAULT_OUTPUT_SCRUBBER_CONFIG: OutputScrubberConfig = {
-  enabled: true,
+  // Disabled by default. The output scrubber is a sub-feature of
+  // Guardrail (no separate master toggle); operators opt in via the
+  // dashboard's Guardrail → Output tab checkbox or
+  // `sai guardrail output toggle enable`. The runtime hook also
+  // requires Guardrail itself to be enabled.
+  enabled: false,
   dryRunMode: false,
   replacementText: '',
   customPatterns: [],

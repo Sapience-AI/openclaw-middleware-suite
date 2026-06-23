@@ -4,7 +4,7 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *     https://www.apache.org/licenses/LICENSE-2.0
  */
 
 /**
@@ -36,7 +36,8 @@ export type ScoringReason =
   | 'session_pinned'
   | 'three_strike'
   | 'structured_output'
-  | 'session_startup';
+  | 'session_startup'
+  | 'icc_extraction';
 
 export interface DimensionScore {
   name: string;
@@ -125,8 +126,19 @@ export interface RoutingDecision {
   latencyMs: number;
   fallbackFrom?: string;
   fallbackAttempts?: FallbackAttempt[];
-  /** Estimated cost in USD (calculated from LiteLLM catalog pricing + token counts). */
+  /** Total cost in USD for this request (input + output + cache costs combined). */
   costEstimateUsd?: number;
+  /**
+   * Per-request token usage and cost split, captured at response completion
+   * from upstream usage data. All optional because non-streaming responses
+   * with missing usage blocks (or upstream errors) leave these undefined.
+   */
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  inputCostUsd?: number;
+  outputCostUsd?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -234,4 +246,11 @@ export interface RoutingAuditEntry {
   sessionId?: string;
   costEstimateUsd?: number;
   cached?: boolean;
+  /** Per-request token usage + cost split. Populated from upstream usage. */
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  inputCostUsd?: number;
+  outputCostUsd?: number;
 }

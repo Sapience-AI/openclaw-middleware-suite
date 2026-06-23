@@ -1,7 +1,5 @@
 import test from 'node:test';
 import assert from 'node:assert';
-import fs from 'node:fs';
-import path from 'node:path';
 import { PiiSanitizerMiddleware } from '../../dist/middlewares/pii-sanitizer/PiiSanitizerMiddleware.js';
 import { ScannerEngine } from '../../dist/middlewares/pii-sanitizer/ScannerEngine.js';
 import { ShellParser } from '../../dist/middlewares/pii-sanitizer/ShellParser.js';
@@ -11,19 +9,14 @@ import {
   DlpStore,
 } from '../../dist/middlewares/pii-sanitizer/storage/DlpStore.js';
 import * as paths from '../../dist/shared/storage/paths.js';
-import { createTestEnvWithOpenclaw } from '../_helpers/test-env.mjs';
+import { createTestEnvWithOpenclaw, seedSuiteStore } from '../_helpers/test-env.mjs';
 
 createTestEnvWithOpenclaw('pii-sanitizer-unit-tests-');
 
 // Seed the DLP config inside the unified sapience-ai-suite.json store under
 // the "pii_sanitizer" key — DlpStore.getPath() now returns a human-readable
 // label, not a real filesystem path.
-fs.mkdirSync(paths.SUITE_HOME, { recursive: true });
-const _existingStore = fs.existsSync(paths.STORE_FILE)
-  ? JSON.parse(fs.readFileSync(paths.STORE_FILE, 'utf-8'))
-  : {};
-_existingStore.pii_sanitizer = DEFAULT_DLP_POLICY;
-fs.writeFileSync(paths.STORE_FILE, JSON.stringify(_existingStore, null, 2));
+seedSuiteStore(paths.SUITE_HOME, paths.STORE_FILE, 'pii_sanitizer', DEFAULT_DLP_POLICY);
 
 test('PII Sanitizer Middleware - Unit Test Suite', async (t) => {
   await t.test('ScannerEngine - Regex Detections', () => {

@@ -5,7 +5,7 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *     https://www.apache.org/licenses/LICENSE-2.0
  *
  * This file is derived from the Reins project (https://github.com/pegasi-ai/reins)
  * and has been modified for use in the OpenClaw Middleware Suite.
@@ -16,8 +16,7 @@
  * Hook-based interception for OpenClaw's before_tool_call event
  */
 
-import * as fs from 'node:fs';
-import * as path from 'node:path';
+import { loadLocalScriptText } from './script-content-loader.js';
 import { Interceptor } from './Interceptor.js';
 import { logger } from '../../shared/Logger.js';
 import { detectBrowserChallenge } from './scoring/BrowserChallengeDetector.js';
@@ -280,6 +279,36 @@ function detectGmailApiMethod(url: string): string {
 }
 
 /**
+ * Returns true iff `needle` occurs in `haystack` with a non-host-character
+ * (or start-of-string) immediately preceding it. Used to reject look-alike
+ * hosts like `notgmail.googleapis.com` while still matching legitimate URLs
+ * embedded anywhere in arbitrary content.
+ *
+ * No regex: avoids CodeQL js/regex/missing-regexp-anchor (the rule wants
+ * ^/$ anchors, but anchoring is impossible when scanning arbitrary content
+ * that embeds a URL).
+ */
+function containsHostBoundary(haystack: string, needle: string): boolean {
+  let from = 0;
+  while (from <= haystack.length) {
+    const idx = haystack.indexOf(needle, from);
+    if (idx === -1) return false;
+    if (idx === 0) return true;
+    const prev = haystack.charCodeAt(idx - 1);
+    // Host chars: a-z, A-Z, 0-9, '-', '.'. Anything else is a boundary.
+    const isHostChar =
+      (prev >= 0x61 && prev <= 0x7a) || // a-z
+      (prev >= 0x41 && prev <= 0x5a) || // A-Z
+      (prev >= 0x30 && prev <= 0x39) || // 0-9
+      prev === 0x2d || // -
+      prev === 0x2e; // .
+    if (!isHostChar) return true;
+    from = idx + 1;
+  }
+  return false;
+}
+
+/**
  * Scan arbitrary text (file content, script body) for Gmail/Drive API signatures.
  * Returns the resolved module/method, or undefined if no signature is found.
  *
@@ -299,11 +328,18 @@ function detectApiSignatureInContent(
   if (lower.includes('gateway.maton.ai/google-drive')) {
     return { module: 'GoogleDrive', method: detectDriveApiMethod(lower) };
   }
-  // Direct Gmail/Drive REST API calls (not via Maton gateway)
-  if (/gmail\.googleapis\.com|www\.googleapis\.com\/gmail/i.test(content)) {
+  // Direct Gmail/Drive REST API calls (not via Maton gateway). Boundary
+  // check rejects look-alike hosts like notgmail.googleapis.com.
+  if (
+    containsHostBoundary(lower, 'gmail.googleapis.com') ||
+    containsHostBoundary(lower, 'www.googleapis.com/gmail')
+  ) {
     return { module: 'Gmail', method: detectGmailApiMethod(lower) };
   }
-  if (/www\.googleapis\.com\/drive|drive\.googleapis\.com/i.test(content)) {
+  if (
+    containsHostBoundary(lower, 'www.googleapis.com/drive') ||
+    containsHostBoundary(lower, 'drive.googleapis.com')
+  ) {
     return { module: 'GoogleDrive', method: detectDriveApiMethod(lower) };
   }
   return undefined;
@@ -317,22 +353,15 @@ function detectApiSignatureInContent(
 function detectApiSignatureInShellScript(
   command: string
 ): { module: string; method: string } | undefined {
-  const MAX_BYTES = 256 * 1024;
   const match =
     /\b(?:python3?|node|deno|bun|ts-node|bash|sh|zsh|pwsh|powershell)\b[^\n]*?\s((?:"[^"]+"|'[^']+'|[^\s"']+\.(?:py|js|mjs|cjs|ts|sh|bash|ps1)))/i.exec(
       command
     );
   if (!match) return undefined;
   const scriptPath = match[1].replace(/^["']|["']$/g, '');
-  try {
-    if (!path.isAbsolute(scriptPath)) return undefined;
-    const stat = fs.statSync(scriptPath);
-    if (!stat.isFile() || stat.size > MAX_BYTES) return undefined;
-    const content = fs.readFileSync(scriptPath, 'utf8');
-    return detectApiSignatureInContent(content);
-  } catch {
-    return undefined;
-  }
+  const content = loadLocalScriptText(scriptPath);
+  if (content === undefined) return undefined;
+  return detectApiSignatureInContent(content);
 }
 
 export interface BeforeToolCallEvent {

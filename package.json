@@ -1,8 +1,9 @@
 {
   "name": "@sapience-ai-corporation/openclaw-middleware-suite",
+  "displayName": "OpenClaw Middleware Suite",
   "type": "module",
-  "version": "1.0.0",
-  "description": "A 6-in-1 middleware suite for OpenClaw",
+  "version": "1.0.3",
+  "description": "Sapience AI's 6-in-1 middleware suite for OpenClaw. These middlewares sit between your agent and and the systems it can affect — intercepting every turn and every tool call, enforcing Human-in-the-Loop gates, redacting PII, blocking prompt injection, routing to the right model, and capping token spend. All locally. Zero telemetry. Nothing leaves your machine.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
@@ -38,16 +39,28 @@
   },
   "typesVersions": {
     "*": {
-      "hitl": ["dist/public/hitl.d.ts"],
-      "context-editing": ["dist/public/context-editing.d.ts"],
-      "model-routing": ["dist/public/model-routing.d.ts"],
-      "guardrail": ["dist/public/guardrail.d.ts"],
-      "pii-sanitizer": ["dist/public/pii-sanitizer.d.ts"],
-      "tool-call-limit": ["dist/public/tool-call-limit.d.ts"]
+      "hitl": [
+        "dist/public/hitl.d.ts"
+      ],
+      "context-editing": [
+        "dist/public/context-editing.d.ts"
+      ],
+      "model-routing": [
+        "dist/public/model-routing.d.ts"
+      ],
+      "guardrail": [
+        "dist/public/guardrail.d.ts"
+      ],
+      "pii-sanitizer": [
+        "dist/public/pii-sanitizer.d.ts"
+      ],
+      "tool-call-limit": [
+        "dist/public/tool-call-limit.d.ts"
+      ]
     }
   },
   "bin": {
-    "sai": "./dist/index.js"
+    "sai": "dist/index.js"
   },
   "scripts": {
     "prebuild": "node -e \"fs.rmSync('dist', { recursive: true, force: true })\"",
@@ -60,10 +73,6 @@
     "test:coverage:report": "npm run build && c8 --reporter=text --reporter=text-summary --reporter=json-summary --reporter=lcov node --test test/**/*.test.mjs",
     "lint": "eslint src --ext .ts",
     "format": "prettier --write \"src/**/*.ts\"",
-    "metrics": "node scripts/adoption-metrics.mjs",
-    "metrics:json": "node scripts/adoption-metrics.mjs --json",
-    "metrics:csv": "node scripts/adoption-metrics.mjs --csv",
-    "dashboard": "node scripts/dashboard.mjs",
     "demo:destructive": "ts-node scripts/demo-destructive.ts",
     "prepublishOnly": "npm run build",
     "prepare": "husky || true"
@@ -81,7 +90,7 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Sapience-AI/openclaw-middleware-suite.git"
+    "url": "git+https://github.com/Sapience-AI/openclaw-middleware-suite.git"
   },
   "homepage": "https://github.com/Sapience-AI/openclaw-middleware-suite#readme",
   "bugs": {
@@ -89,34 +98,35 @@
   },
   "dependencies": {
     "bash-parser": "^0.5.0",
-    "chalk": "^4.1.2",
+    "chalk": "^5.6.2",
     "commander": "^11.1.0",
     "fs-extra": "^11.2.0",
-    "inquirer": "^9.2.12",
+    "inquirer": "^13.4.2",
     "otpauth": "^9.5.0",
     "winston": "^3.11.0"
   },
   "peerDependencies": {
-    "openclaw": ">=2026.4.11"
+    "openclaw": ">=2026.5.3"
   },
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "provenance": true
   },
   "devDependencies": {
     "@preact/preset-vite": "^2.8.0",
-    "@preact/signals": "^1.2.0",
+    "@preact/signals": "^2.9.0",
     "@types/fs-extra": "^11.0.4",
     "@types/inquirer": "^9.0.7",
     "@types/node": "^20.10.5",
-    "@typescript-eslint/eslint-plugin": "^8.58.2",
-    "@typescript-eslint/parser": "^8.58.2",
+    "@typescript-eslint/eslint-plugin": "^8.59.2",
+    "@typescript-eslint/parser": "^8.59.2",
     "c8": "^11.0.0",
     "eslint": "^8.56.0",
     "preact": "^10.19.0",
     "preact-router": "^4.1.0",
     "husky": "^9.1.7",
     "lint-staged": "^16.4.0",
-    "prettier": "^3.1.1",
+    "prettier": "^3.8.3",
     "ts-node": "^10.9.2",
     "typescript": "^5.3.3",
     "uplot": "^1.6.31",
@@ -147,12 +157,12 @@
       "dist/plugin/index.js"
     ],
     "compat": {
-      "pluginApi": ">=2026.4.11",
-      "minGatewayVersion": "2026.4.11"
+      "pluginApi": ">=2026.5.3",
+      "minGatewayVersion": "2026.5.3"
     },
     "build": {
-      "openclawVersion": "2026.4.11",
-      "pluginSdkVersion": "2026.4.11"
+      "openclawVersion": "2026.5.4",
+      "pluginSdkVersion": "2026.5.4"
     }
   }
 }

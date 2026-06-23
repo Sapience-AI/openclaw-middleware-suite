@@ -4,7 +4,7 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *     https://www.apache.org/licenses/LICENSE-2.0
  */
 
 import { useRef, useEffect } from 'preact/hooks';
@@ -57,8 +57,8 @@ export function Chart({ title, data, options, height = 200 }: ChartProps) {
       series: [
         {},
         {
-          stroke: '#8E6FFB',
-          fill: 'rgba(142, 111, 251, 0.08)',
+          stroke: '#674C67',
+          fill: 'rgba(103, 76, 103, 0.08)',
           width: 2,
           label: 'Value',
         },

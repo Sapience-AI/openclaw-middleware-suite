@@ -4,7 +4,7 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *     https://www.apache.org/licenses/LICENSE-2.0
  */
 
 /**
@@ -46,12 +46,16 @@ import {
 } from '../../types.js';
 import { logger } from '../../shared/Logger.js';
 import { ConfigStore, DEFAULT_GUARDRAIL_CONFIG } from './storage/ConfigStore.js';
+import { DecisionLog } from './storage/DecisionLog.js';
 import { executeGuardrailScan } from './GuardrailInterceptorHook.js';
-import { getPatternCount } from './scrubbers/MetadataScrubber.js';
+import { getPatternCount, scrubMetadata } from './scrubbers/MetadataScrubber.js';
 import { createPromptGuardHook } from './PromptGuardHook.js';
 import { createModerationGuardHook } from './ModerationGuardHook.js';
 import { createWriteScannerHook } from './GuardrailWriteScannerHook.js';
 import { GuardrailConfig } from './types.js';
+
+/** Internal shape matching `MessageWriteContext.message` for content rewrites. */
+type MessageShape = { role?: string; content?: unknown; [key: string]: unknown };
 
 const GUARDRAIL_VERSION = '3.1.0';
 
@@ -62,6 +66,7 @@ export class GuardrailMiddleware implements Middleware {
   private scanCount = 0;
   private blockCount = 0;
   private escalateCount = 0;
+  private scrubCount = 0;
 
   /**
    * In-memory current config — source of truth for hot-path reads when
@@ -228,20 +233,157 @@ export class GuardrailMiddleware implements Middleware {
   }
 
   /**
-   * `before_message_write` surface. Runs the write scanner (regex/prefix/
-   * heuristic + role impersonation + agent interrogation + canary tracker)
-   * and applies the cached moderation result from `beforeAgentStart`.
-   * Returns `{ message }` to rewrite, `{ block: true }` to drop, or
-   * `undefined` to pass through.
+   * `before_message_write` surface. Runs two stages in sequence on the same
+   * hook event:
+   *
+   *   1. **Security write scanner** — regex/prefix/heuristic rules, role
+   *      impersonation detection, agent interrogation detection, canary
+   *      tracker, and moderation-cache enforcement (cache populated by
+   *      `beforeAgentStart`). Fires for **all** roles (user, assistant,
+   *      tool result, system). May block, rewrite, or pass through.
+   *   2. **Output scrubber** — strips middleware tokens, reasoning
+   *      artifacts, architecture leaks, and instruction-reflection
+   *      patterns from the agent's text. Fires only on **assistant**
+   *      messages, only when `outputScrubber.enabled === true`. Operates
+   *      on the security stage's rewrite when one occurred, else on the
+   *      original content (matches the prior plugin-runtime behavior
+   *      where two separate `before_message_write` registrations chained
+   *      sequentially).
+   *
+   * If the security stage blocks, the scrubber is skipped (a blocked
+   * message has no body to scrub). Returns `{ message }` to rewrite,
+   * `{ block: true }` to drop, or `undefined` to pass through.
    */
   beforeMessageWrite(context: MessageWriteContext): MessageWriteResult | undefined {
     try {
-      const result = this.writeScannerHandler(context, context);
-      return result ?? undefined;
+      const secResult = this.writeScannerHandler(context, context);
+      if (secResult?.block) return secResult;
+
+      const scrubResult = this.runOutputScrubber(context, secResult);
+      return scrubResult ?? secResult ?? undefined;
     } catch (err) {
       logger.warn('[GuardrailMiddleware] beforeMessageWrite error — fail-open', { error: err });
       return undefined;
     }
+  }
+
+  /**
+   * Output scrubber stage of `beforeMessageWrite`. See the method's docstring
+   * for stage ordering. Returns a `MessageWriteResult` only when the scrubber
+   * actually modified content (and dry-run is off); otherwise returns
+   * `undefined` so the caller can fall through to the security stage's
+   * result.
+   */
+  private runOutputScrubber(
+    context: MessageWriteContext,
+    secResult: MessageWriteResult | undefined
+  ): MessageWriteResult | undefined {
+    // Determine the message shape to operate on. If security rewrote, scrub
+    // the rewritten content (matches prior plugin-runtime behavior where the
+    // standalone scrubber received the security stage's rewrite as its event).
+    const effectiveMessage = (secResult?.message ?? context.message) as MessageShape | undefined;
+    const role = GuardrailMiddleware.extractRole(context, effectiveMessage);
+    if (role !== 'assistant') return undefined;
+
+    const scrubberConfig = this.resolveConfig().outputScrubber;
+    if (!scrubberConfig || !scrubberConfig.enabled) return undefined;
+
+    const sourceContent = effectiveMessage
+      ? GuardrailMiddleware.extractContentFromMessage(effectiveMessage)
+      : GuardrailMiddleware.extractContentFromContext(context);
+    if (!sourceContent || sourceContent.length === 0) return undefined;
+
+    const result = scrubMetadata(sourceContent, scrubberConfig);
+    if (!result.scrubbed) return undefined;
+
+    this.scrubCount += 1;
+
+    void DecisionLog.append({
+      timestamp: new Date().toISOString(),
+      module: 'guardrail:output-scrubber',
+      method: 'metadata-scrubber',
+      args: [{ contentLength: sourceContent.length, matchCount: result.matchCount }],
+      decision: scrubberConfig.dryRunMode ? 'ALLOWED' : 'BLOCKED',
+      decisionTime: 0,
+      reason: `output-scrubber: scrubbed ${result.matchCount} match(es) [${result.matchedGroups.join(', ')}]`,
+      eventType: 'tool_blocked' as const,
+      tool: 'message_write',
+      severity: 'LOW',
+      agentId: context.agentId,
+      sessionKey: context.sessionKey,
+    });
+
+    logger.info(
+      `[guardrail:output-scrubber] ${scrubberConfig.dryRunMode ? 'DRY-RUN' : 'SCRUB'} #${this.scrubCount} | ${result.matchCount} match(es) | groups=[${result.matchedGroups.join(', ')}]`,
+      { sessionKey: context.sessionKey }
+    );
+
+    if (scrubberConfig.dryRunMode) return undefined;
+
+    const newMessage = GuardrailMiddleware.replaceMessageContent(
+      effectiveMessage,
+      result.content,
+      role
+    );
+    return { message: newMessage };
+  }
+
+  /** Pull role from the context's top level or its nested message object. */
+  private static extractRole(
+    context: MessageWriteContext,
+    fallbackMessage?: MessageShape
+  ): string | undefined {
+    if (typeof context.role === 'string') return context.role;
+    const msg = (context.message ?? fallbackMessage) as MessageShape | undefined;
+    if (msg && typeof msg.role === 'string') return msg.role;
+    return undefined;
+  }
+
+  /** Extract scrubbable text from a `MessageWriteContext` top-level shape. */
+  private static extractContentFromContext(context: MessageWriteContext): string {
+    if (typeof context.content === 'string') return context.content;
+    if (context.message) return GuardrailMiddleware.extractContentFromMessage(context.message);
+    return '';
+  }
+
+  /** Extract scrubbable text from a nested message shape (string or array). */
+  private static extractContentFromMessage(message: MessageShape): string {
+    const c = message.content;
+    if (typeof c === 'string') return c;
+    if (Array.isArray(c)) {
+      return c
+        .filter(
+          (b): b is { type: string; text: string } =>
+            !!b &&
+            typeof b === 'object' &&
+            (b as { type?: unknown }).type === 'text' &&
+            typeof (b as { text?: unknown }).text === 'string'
+        )
+        .map((b) => b.text)
+        .join('\n');
+    }
+    return '';
+  }
+
+  /**
+   * Rebuild a message with replaced text, preserving the original content
+   * shape (string vs array of text blocks). When `original` is missing, a
+   * minimal `{ role, content: <newText> }` object is returned so the caller
+   * still has a valid message to forward.
+   */
+  private static replaceMessageContent(
+    original: MessageShape | undefined,
+    newText: string,
+    fallbackRole: string
+  ): MessageShape {
+    const base: MessageShape = { ...(original ?? {}) };
+    if (!base.role) base.role = fallbackRole;
+    if (Array.isArray(original?.content)) {
+      base.content = [{ type: 'text', text: newText }];
+    } else {
+      base.content = newText;
+    }
+    return base;
   }
 
   getStatus(): { enabled: boolean; stats?: Record<string, unknown> } {
@@ -256,6 +398,7 @@ export class GuardrailMiddleware implements Middleware {
         scanCount: this.scanCount,
         blockCount: this.blockCount,
         escalateCount: this.escalateCount,
+        scrubCount: this.scrubCount,
         metadataPatternCount: getPatternCount(),
       },
     };

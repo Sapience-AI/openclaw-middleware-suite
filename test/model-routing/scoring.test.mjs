@@ -186,9 +186,41 @@ test('scoreRequest: "waterproof proof theorem" → formalLogic dim has 2 matches
   assert.ok(formalLogicDim === undefined || formalLogicDim.score >= 0);
 });
 
-test('scoreRequest: tool floor — SIMPLE request with tools → STANDARD', () => {
+test('scoreRequest: tool floor does NOT fire when tools are merely listed (no agent tool-call evidence)', () => {
+  // OpenClaw sends its full tool inventory on every chat turn. If `hasTools`
+  // alone triggered the floor, every chat turn would be STANDARD regardless
+  // of whether the agent ever used a tool. The floor is now scoped to
+  // post-tool-call LLM invocations.
   const body = {
     messages: [{ role: 'user', content: 'hi' }],
+    tools: [{ type: 'function', function: { name: 'get_weather' } }],
+  };
+  const result = scoreRequest({ body }, DEFAULT_SCORING_CONFIG);
+  assert.equal(result.tier, 'SIMPLE');
+  assert.notEqual(result.reason, 'tool_floor');
+});
+
+test('scoreRequest: tool floor fires when prior tool-call evidence exists, even with a short follow-up', () => {
+  // The user's follow-up `"thanks"` would normally short_message → SIMPLE,
+  // but the conversation history contains assistant.tool_calls + role=tool,
+  // so the next LLM turn needs to handle tool I/O. Floor to STANDARD.
+  const body = {
+    messages: [
+      { role: 'user', content: 'what is the weather?' },
+      {
+        role: 'assistant',
+        content: '',
+        tool_calls: [
+          {
+            id: 'call_abc',
+            type: 'function',
+            function: { name: 'get_weather', arguments: '{}' },
+          },
+        ],
+      },
+      { role: 'tool', tool_call_id: 'call_abc', content: '{"temp":18}' },
+      { role: 'user', content: 'thanks' },
+    ],
     tools: [{ type: 'function', function: { name: 'get_weather' } }],
   };
   const result = scoreRequest({ body }, DEFAULT_SCORING_CONFIG);
@@ -210,7 +242,12 @@ test('scoreRequest: structured output floor — response_format upgrades SIMPLE 
   assert.equal(result.reason, 'structured_output');
 });
 
-test('scoreRequest: structured output floor — JSON in system prompt upgrades SIMPLE to STANDARD', () => {
+test('scoreRequest: JSON keywords in system prompt do NOT trigger structured_output floor (only response_format does)', () => {
+  // The system-prompt keyword heuristic was removed because it fired on
+  // essentially every OpenClaw chat call — bootstrap content (SOUL.md,
+  // USER.md, tool descriptions) routinely mentions "json"/"schema"/
+  // "structured" in unrelated contexts. The unambiguous API signal
+  // (`response_format`) is the only floor trigger now.
   const body = {
     messages: [
       { role: 'system', content: 'Always respond with valid JSON' },
@@ -218,11 +255,11 @@ test('scoreRequest: structured output floor — JSON in system prompt upgrades S
     ],
   };
   const result = scoreRequest({ body }, DEFAULT_SCORING_CONFIG);
-  assert.equal(result.tier, 'STANDARD');
-  assert.equal(result.reason, 'structured_output');
+  assert.equal(result.tier, 'SIMPLE');
+  assert.notEqual(result.reason, 'structured_output');
 });
 
-test('scoreRequest: structured output floor — schema in system prompt upgrades SIMPLE to STANDARD', () => {
+test('scoreRequest: schema keyword in developer prompt does NOT trigger structured_output floor', () => {
   const body = {
     messages: [
       { role: 'developer', content: 'Follow this schema: { name: string }' },
@@ -230,8 +267,34 @@ test('scoreRequest: structured output floor — schema in system prompt upgrades
     ],
   };
   const result = scoreRequest({ body }, DEFAULT_SCORING_CONFIG);
-  assert.equal(result.tier, 'STANDARD');
-  assert.equal(result.reason, 'structured_output');
+  assert.equal(result.tier, 'SIMPLE');
+  assert.notEqual(result.reason, 'structured_output');
+});
+
+test('scoreRequest: realistic OpenClaw bootstrap-style system prompt does NOT trigger structured_output floor', () => {
+  // Regression: the previous regex `/json|structured|schema/i` fired on
+  // OpenClaw bootstrap content because SOUL.md, tool descriptions, and
+  // workspace files routinely use those words for unrelated reasons.
+  // This fixture mimics what a real OpenClaw system prompt looks like.
+  const bootstrapSystemPrompt = `
+You are Atlas, a thoughtful AI assistant.
+
+Your workspace files:
+- SOUL.md describes your structured workflow and how you approach tasks.
+- AGENTS.md lists tool schemas you have access to.
+- Each tool emits responses in JSON format.
+
+Be resourceful. Read files before asking. Use structured thinking.
+`;
+  const body = {
+    messages: [
+      { role: 'system', content: bootstrapSystemPrompt },
+      { role: 'user', content: 'hi' },
+    ],
+  };
+  const result = scoreRequest({ body }, DEFAULT_SCORING_CONFIG);
+  assert.equal(result.tier, 'SIMPLE');
+  assert.notEqual(result.reason, 'structured_output');
 });
 
 test('scoreRequest: structured output floor — no upgrade when tier already meets minimum', () => {
@@ -244,7 +307,7 @@ test('scoreRequest: structured output floor — no upgrade when tier already mee
   assert.notEqual(result.reason, 'structured_output');
 });
 
-test('scoreRequest: structured output floor — no trigger without response_format or system prompt keywords', () => {
+test('scoreRequest: structured output floor — no trigger without response_format', () => {
   const body = {
     messages: [
       { role: 'system', content: 'You are a helpful assistant.' },

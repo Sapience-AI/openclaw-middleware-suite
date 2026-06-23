@@ -4,7 +4,7 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *     https://www.apache.org/licenses/LICENSE-2.0
  */
 
 /**
@@ -70,6 +70,17 @@ export interface SessionBuffer {
   baselineMessageCount: number;
   /** Token count baseline at last compaction — delta = estimatedTokens - baseline */
   baselineTokens: number;
+  /**
+   * `false` until `TriggerEvaluator.syncSessionStats` first observes the
+   * session. The first sync anchors `baselineMessageCount` /
+   * `baselineTokens` to the live counts so a session that already had
+   * messages before CE began watching it (CE enabled mid-session, gateway
+   * restart while a session is active, plugin reload, disable→re-enable)
+   * doesn't immediately trip the message/token thresholds. Mirrors the
+   * post-compaction semantic where `resetSession` re-anchors
+   * `baseline = messageCount`.
+   */
+  hasBeenSynced: boolean;
 }
 
 // ---------------------------------------------------------------------------

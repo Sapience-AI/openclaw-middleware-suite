@@ -4,7 +4,7 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *     https://www.apache.org/licenses/LICENSE-2.0
  */
 
 /**
@@ -168,6 +168,13 @@ export class ConfigStore {
 
   private static setNestedValue(obj: any, pathStr: string, value: any) {
     const keys = pathStr.split('.');
+    // Reject any path segment that could pollute Object.prototype
+    // (CodeQL js/prototype-pollution-utility).
+    for (const k of keys) {
+      if (k === '__proto__' || k === 'constructor' || k === 'prototype') {
+        throw new Error(`Refusing to set property at unsafe path segment: ${k}`);
+      }
+    }
     let current = obj;
     for (let i = 0; i < keys.length - 1; i++) {
       if (!current[keys[i]] || typeof current[keys[i]] !== 'object') {

@@ -5,7 +5,7 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *     https://www.apache.org/licenses/LICENSE-2.0
  *
  * This file is derived from the OpenClaw Shield project
  * (https://github.com/knostic/openclaw-shield) and has been modified for use
@@ -48,7 +48,9 @@ const BUILTIN_PATTERNS: DestructivePattern[] = [
   // ── File system destruction ────────────────────
   {
     name: 'rm_recursive_root',
-    pattern: /rm\s+(?:-[a-zA-Z]*[rf][a-zA-Z]*\s+)*(?:\/|~\/?\s|"\/|'\/)[\s;|&]?/i,
+    // Bounded quantifiers prevent polynomial/exponential ReDoS
+    // (CodeQL js/redos). 16 chars covers any realistic flag bundle.
+    pattern: /rm\s+(?:-[a-zA-Z]{0,16}[rf][a-zA-Z]{0,16}\s+){0,8}(?:\/|~\/?\s|"\/|'\/)[\s;|&]?/i,
     description: 'rm -rf / or home directory',
     severity: 'CRITICAL',
   },

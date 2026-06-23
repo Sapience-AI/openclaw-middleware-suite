@@ -4,7 +4,7 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *     https://www.apache.org/licenses/LICENSE-2.0
  */
 
 /**
@@ -52,8 +52,11 @@ export const outputStatusCommand = async () => {
 export const outputToggleCommand = async (state: string) => {
   const config = await ConfigStore.load();
   if (!config.outputScrubber) {
+    // Match `DEFAULT_OUTPUT_SCRUBBER_CONFIG` (disabled by default). The
+    // explicit case below overrides this when the user passes
+    // `enable` / `dry-run`; for `disable` it stays `false`.
     config.outputScrubber = {
-      enabled: true,
+      enabled: false,
       dryRunMode: false,
       replacementText: '',
       customPatterns: [],

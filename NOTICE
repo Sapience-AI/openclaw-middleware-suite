@@ -3,7 +3,7 @@ Copyright (c) 2026 Sapience AI Corporation
 
 This product is licensed under the Apache License, Version 2.0 (see LICENSE).
 The full text of the Apache License, Version 2.0 may also be found at:
-    http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 This product includes software derived from third-party open-source projects.
 The applicable copyright notices, license terms, and required attributions are
@@ -17,10 +17,10 @@ The Human-in-the-Loop (HITL) middleware in this product is derived from the
 Reins project by Pegasi.
 
   Project:   Reins (@pegasi-ai/reins)
-  Author:    Kevin Wu and Pegasi contributors
+  Author:    Kevin Wu <kevin@usepegasi.com>
   Source:    https://github.com/pegasi-ai/reins
   License:   Apache License, Version 2.0
-  License text: http://www.apache.org/licenses/LICENSE-2.0
+  License text: https://www.apache.org/licenses/LICENSE-2.0
 
   Copyright (c) Kevin Wu and Pegasi contributors. All rights reserved.
 
@@ -68,7 +68,7 @@ Reins project by Pegasi.
     src/types.ts
 
 ================================================================================
-2. Manifest (Model Routing Middleware)
+2. Manifest (Model Routing — Scoring & Provider Discovery)
 ================================================================================
 
 The Model Routing middleware in this product is derived from the Manifest
@@ -77,13 +77,12 @@ project by MNFST, Inc.
   Project:   Manifest
   Author:    MNFST, Inc. and the Manifest contributors
   Source:    https://github.com/mnfst/manifest
-  Homepage:  https://manifest.build
   License:   MIT License
   License text: https://opensource.org/licenses/MIT
 
   MIT License
 
-  Copyright (c) 2026 MNFST, Inc.
+  Copyright (c) 2026 MNFST, Inc
 
   Permission is hereby granted, free of charge, to any person obtaining a copy
   of this software and associated documentation files (the "Software"), to deal
@@ -131,11 +130,14 @@ project by MNFST, Inc.
     src/middlewares/model-routing/selection/fallback.ts
 
 ================================================================================
-3. ClawRouter (Model Routing Middleware)
+3. ClawRouter (Model Routing — Proxy, Cache & Session)
 ================================================================================
 
 The Model Routing middleware in this product also incorporates code derived
-from the ClawRouter project by BlockRun (BlockRunAI).
+from the ClawRouter project by BlockRun. The GitHub organization is
+"BlockRunAI"; the package author and copyright holder is "BlockRun" (per
+ClawRouter's package.json) and "BlockRunAI" (per ClawRouter's LICENSE) —
+each context below mirrors the upstream artifact verbatim.
 
   Project:   ClawRouter (@blockrun/clawrouter)
   Author:    BlockRun <hello@blockrun.ai>
@@ -194,7 +196,7 @@ detection rules derived from the OpenClaw Shield project by Knostic.
   Author:    Knostic
   Source:    https://github.com/knostic/openclaw-shield
   License:   Apache License, Version 2.0
-  License text: http://www.apache.org/licenses/LICENSE-2.0
+  License text: https://www.apache.org/licenses/LICENSE-2.0
 
   Copyright (c) Knostic. All rights reserved.
 
@@ -226,25 +228,76 @@ OpenGuardrails project.
 
   Project:   OpenGuardrails
   Source:    https://github.com/openguardrails/openguardrails
-  License:   Apache License, Version 2.0 (modified — with additional
-             conditions covering multi-tenant SaaS use and frontend brand
-             attribution; see the upstream LICENSE for details)
-  License text: http://www.apache.org/licenses/LICENSE-2.0
+  License:   Modified Apache License, Version 2.0 (non-canonical — adds
+             upstream-specific conditions reproduced verbatim below)
+  Upstream LICENSE (pinned): https://github.com/openguardrails/openguardrails/blob/b079ea095c/LICENSE
 
-  Copyright (c) OpenGuardrails contributors. All rights reserved.
+  Copyright (c) 2026 OpenGuardrails.com
 
-  Licensed under the Apache License, Version 2.0 (the "License") with the
-  additional conditions stated in the upstream LICENSE file. You may not
-  use the affected files except in compliance with the License. Unless
-  required by applicable law or agreed to in writing, software distributed
-  under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
-  CONDITIONS OF ANY KIND, either express or implied.
+  Licensed under the Modified Apache License, Version 2.0 described above.
+  You may not use the affected files except in compliance with that license.
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the license is distributed on an "AS IS" BASIS, WITHOUT
+  WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 
-  Note on the additional conditions: the OpenClaw Middleware Suite uses
-  OpenGuardrails purely as a backend / SDK-style component. It does not
-  embed, redistribute, or expose the OpenGuardrails frontend interface,
-  and it does not operate a multi-tenant SaaS environment based on the
-  OpenGuardrails source code.
+  Additional conditions (reproduced verbatim from the upstream LICENSE at
+  the pinned snapshot referenced above):
+
+      # Open Source License
+
+      OpenGuardrails is licensed under a modified version of the Apache
+      License 2.0, with the following additional conditions:
+
+      1. OpenGuardrails may be utilized commercially, including as a backend
+      service for other applications or as an application development
+      platform for enterprises. Should the conditions below be met, a
+      commercial license must be obtained from the producer:
+
+      a. Multi-tenant service: Unless explicitly authorized by OpenGuardrails
+      in writing, you may not use the OpenGuardrails source code to operate a
+      multi-tenant SaaS environment.
+          - Tenant Definition:
+          Within the context of OpenGuardrails, a tenant refers to a
+          logically isolated instance used by an independent user,
+          organization, or client.
+          Multi-tenancy includes — but is not limited to — providing
+          separate user environments, dashboards, or API spaces for multiple
+          customers in one hosted system.
+          - Examples:
+          Using OpenGuardrails within your own company or organization →
+          Allowed.
+          Delivering a single customized instance to one enterprise customer
+          → Allowed.
+          Operating a hosted SaaS platform where multiple users register and
+          use isolated environments → Requires commercial license.
+
+      b. Brand identity and attribution:
+          When using OpenGuardrails' frontend interface, you may not remove,
+          obscure, or modify the OpenGuardrails LOGO, product name, or
+          copyright information displayed in the product console, web
+          interface, or related applications.
+          This restriction does not apply to deployments that use
+          OpenGuardrails purely as a backend or SDK component without its
+          frontend interface.
+          - Frontend Definition:
+          The frontend refers to all source code and assets within the
+          frontend/ directory of the OpenGuardrails repository, or the
+          corresponding "frontend" image when running via Docker.
+
+      2. As a contributor, you should agree that:
+
+      a. The producer can adjust the open-source agreement to be more strict
+      or relaxed as deemed necessary.
+      b. Your contributed code may be used for commercial purposes,
+      including but not limited to its cloud business operations.
+
+      Apart from the specific conditions mentioned above, all other rights
+      and restrictions follow the Apache License 2.0. Detailed information
+      about the Apache License 2.0 can be found at
+      http://www.apache.org/licenses/LICENSE-2.0.
+
+      The interactive design of this product is protected by appearance
+      patent.
 
   The following files in this repository contain detection rules and
   classification patterns derived from the OpenGuardrails risk taxonomy

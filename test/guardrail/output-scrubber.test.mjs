@@ -38,9 +38,14 @@ const loadScrubberConfig = async () => {
 };
 
 test('OutputScrubber: ConfigStore creates default outputScrubber on load', async () => {
+  // Default flipped from `enabled: true` to `false` in 1.0.3 alongside the
+  // Output Guardrail consolidation — the scrubber is now an opt-in
+  // sub-feature of Guardrail, so a fresh install ships with it off and the
+  // operator activates via Guardrail → Output tab or `sai guardrail output
+  // toggle enable`. See DEFAULT_OUTPUT_SCRUBBER_CONFIG in ConfigStore.ts.
   const cfg = await ConfigStore.load();
   assert.ok(cfg.outputScrubber, 'outputScrubber should exist');
-  assert.equal(cfg.outputScrubber.enabled, true);
+  assert.equal(cfg.outputScrubber.enabled, false);
   assert.equal(cfg.outputScrubber.dryRunMode, false);
   assert.ok(Array.isArray(cfg.outputScrubber.customPatterns));
 });
@@ -58,9 +63,15 @@ test('OutputScrubber: ConfigStore save persists outputScrubber', async () => {
 test('OutputScrubber: ConfigStore validation drops invalid regex patterns', async () => {
   // Write directly into the unified store under the "guardrail" key
   fs.mkdirSync(paths.SUITE_HOME, { recursive: true });
-  const store = fs.existsSync(paths.STORE_FILE)
-    ? JSON.parse(fs.readFileSync(paths.STORE_FILE, 'utf-8'))
-    : {};
+  // No existsSync precheck — read directly and tolerate ENOENT
+  // (CodeQL js/file-system-race).
+  let store;
+  try {
+    store = JSON.parse(fs.readFileSync(paths.STORE_FILE, 'utf-8'));
+  } catch (err) {
+    if (err.code !== 'ENOENT') throw err;
+    store = {};
+  }
   store.guardrail = store.guardrail || {};
   store.guardrail.outputScrubber = {
     enabled: true,

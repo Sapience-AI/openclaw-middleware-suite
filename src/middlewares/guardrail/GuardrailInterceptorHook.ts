@@ -4,7 +4,7 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *     https://www.apache.org/licenses/LICENSE-2.0
  */
 
 /**
@@ -339,19 +339,6 @@ function preReadAndScan(
         // realpathSync fails if target doesn't exist — use original
       }
 
-      const stat = fs.statSync(resolvedPath);
-
-      // Skip directories only — allow regular files AND symlinks (already resolved above)
-      if (stat.isDirectory()) continue;
-
-      // Skip files > 1MB to avoid memory pressure
-      if (stat.size > 1_048_576) {
-        logger.debug(
-          `[guardrail-interceptor] Skipping pre-read of large file (${stat.size} bytes): ${resolvedPath}`
-        );
-        continue;
-      }
-
       // Skip likely binary files (images, archives, executables, etc.)
       const ext = path.extname(resolvedPath).toLowerCase();
       const BINARY_EXTS = new Set([
@@ -395,7 +382,32 @@ function preReadAndScan(
       ]);
       if (BINARY_EXTS.has(ext)) continue;
 
-      content = fs.readFileSync(resolvedPath, 'utf-8');
+      // Open first, then fstat — atomic w.r.t. the file content. Eliminates
+      // the TOCTOU race between stat and read
+      // (CodeQL js/file-system-race).
+      let fd: number | undefined;
+      try {
+        fd = fs.openSync(resolvedPath, 'r');
+        const stat = fs.fstatSync(fd);
+        if (stat.isDirectory()) continue;
+        if (stat.size > 1_048_576) {
+          logger.debug(
+            `[guardrail-interceptor] Skipping pre-read of large file (${stat.size} bytes): ${resolvedPath}`
+          );
+          continue;
+        }
+        const buf = Buffer.alloc(stat.size);
+        fs.readSync(fd, buf, 0, stat.size, 0);
+        content = buf.toString('utf-8');
+      } finally {
+        if (fd !== undefined) {
+          try {
+            fs.closeSync(fd);
+          } catch {
+            /* ignore */
+          }
+        }
+      }
     } catch {
       // File doesn't exist, access denied, etc. — skip, let the tool handle it
       continue;

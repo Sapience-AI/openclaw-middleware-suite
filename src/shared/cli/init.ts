@@ -5,7 +5,7 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *     https://www.apache.org/licenses/LICENSE-2.0
  *
  * This file is derived from the Reins project (https://github.com/pegasi-ai/reins)
  * and has been modified for use in the OpenClaw Middleware Suite.
@@ -42,11 +42,8 @@ const MIDDLEWARE_REGISTRY: Record<string, { name: string; description: string }>
   },
   guardrail: {
     name: '🔒  Guardrail',
-    description: 'Universal security scanner (sensitive paths, egress, destructive commands)',
-  },
-  'output-guardrail': {
-    name: '🧹  Output Guardrail',
-    description: 'Metadata scrubber for assistant messages',
+    description:
+      'Universal security scanner (sensitive paths, egress, destructive commands) + output scrubber for assistant messages',
   },
   'pii-sanitizer': {
     name: '🔐  PII Sanitizer',
@@ -352,26 +349,6 @@ export async function initWizard(options: InitWizardOptions = {}): Promise<InitS
       restartRecommended: false,
       warnings,
       nextSteps: ['Run sai guardrail status to verify configuration'],
-    };
-  }
-
-  if (selectedMiddleware === 'output-guardrail') {
-    // Output guardrail consolidated into guardrail middleware — delegate to guardrail init
-    const result = await initGuardrailMiddleware(
-      options as Record<string, unknown>,
-      jsonMode,
-      nonInteractive,
-      paths,
-      warnings
-    );
-    return {
-      ok: true,
-      configPath: result.configPath,
-      policyPath: result.configPath,
-      openclawHome: paths.openclawHome,
-      restartRecommended: false,
-      warnings,
-      nextSteps: ['Run sai guardrail output status to verify configuration'],
     };
   }
 

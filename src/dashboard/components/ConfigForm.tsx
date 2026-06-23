@@ -4,7 +4,7 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *     https://www.apache.org/licenses/LICENSE-2.0
  */
 
 import { useState, useEffect } from 'preact/hooks';
@@ -100,11 +100,18 @@ interface ConfigFormProps {
   onSave: (values: Record<string, unknown>) => Promise<void>;
   /** When true, fields are visible but not editable and save/reset buttons are hidden. */
   readOnly?: boolean;
+  /**
+   * When true, applies the `.config-form--dense` modifier — tighter
+   * vertical padding per field. Used by pages with many fields (e.g.
+   * Model Routing config) so the form fits the viewport without
+   * forcing the page to scroll.
+   */
+  dense?: boolean;
 }
 
 // ── ConfigForm component ──────────────────────────────────────────────────
 
-export function ConfigForm({ fields, values, onSave, readOnly }: ConfigFormProps) {
+export function ConfigForm({ fields, values, onSave, readOnly, dense }: ConfigFormProps) {
   const [form, setForm] = useState<Record<string, unknown>>({});
   const [saving, setSaving] = useState(false);
 
@@ -156,7 +163,13 @@ export function ConfigForm({ fields, values, onSave, readOnly }: ConfigFormProps
   const noopSet = (_key: string, _val: unknown) => {};
 
   return (
-    <div class={`config-form${readOnly ? ' config-form--readonly' : ''}`}>
+    <div
+      class={
+        'config-form' +
+        (readOnly ? ' config-form--readonly' : '') +
+        (dense ? ' config-form--dense' : '')
+      }
+    >
       {readOnly && (
         <div class="config-form-banner">
           This middleware is disabled. Enable it to edit configuration.

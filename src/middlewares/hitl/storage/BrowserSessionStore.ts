@@ -5,7 +5,7 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *     https://www.apache.org/licenses/LICENSE-2.0
  *
  * This file is derived from the Reins project (https://github.com/pegasi-ai/reins)
  * and has been modified for use in the OpenClaw Middleware Suite.
@@ -221,15 +221,17 @@ export class BrowserSessionStore {
           currentHeaders.authorization === undefined &&
           currentHeaders.Authorization === undefined
         ) {
-          if (persistedHeaders.authorization !== undefined) {
-            currentHeaders.authorization = persistedHeaders.authorization;
+          const persistedAuth = persistedHeaders.authorization;
+          if (persistedAuth !== undefined) {
+            currentHeaders.authorization = persistedAuth;
             injectedFields.push('headers.authorization');
           }
         }
 
         if (currentHeaders.cookie === undefined && currentHeaders.Cookie === undefined) {
-          if (persistedHeaders.cookie !== undefined) {
-            currentHeaders.cookie = persistedHeaders.cookie;
+          const persistedCookie = persistedHeaders.cookie;
+          if (persistedCookie !== undefined) {
+            currentHeaders.cookie = persistedCookie;
             injectedFields.push('headers.cookie');
           }
         }

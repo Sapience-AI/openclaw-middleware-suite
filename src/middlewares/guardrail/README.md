@@ -254,7 +254,7 @@ Detects tool results and messages trying to impersonate system prompts or conver
 |----------|----------|----------|
 | ChatML injection | `<\|im_start\|>` + any role, `<\|im_end\|>`, unicode-escaped variants | CRITICAL/HIGH |
 | Llama markers | `[INST]`, `<<SYS>>` | HIGH/CRITICAL |
-| Fake system | `[SYSTEM]:`, `<system>`, `system prompt:` | CRITICAL/HIGH |
+| Fake system | `[SYSTEM]:`, `<system>`, `system prompt`: (and `system_prompt:` variants) | CRITICAL/HIGH |
 | Fake roles | `User: ignore/stop/don't/reset...`, `Assistant: I will/Sure/Yes...` | CRITICAL/HIGH |
 | Meta-instruction | `NEW/IMPORTANT INSTRUCTIONS:`, `--- END OF PROMPT ---` | CRITICAL/HIGH |
 | Message format | `{"role": "system", "content": ...}` | HIGH |

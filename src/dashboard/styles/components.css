@@ -51,7 +51,7 @@
 .stat-value {
   font-weight: 300;
   font-size: 36px;
-  color: var(--sai-text-primary);
+  color: var(--sai-purple);
   letter-spacing: -1px;
   line-height: 1.1;
 }
@@ -237,6 +237,40 @@
 .data-table .mono {
   font-family: 'JetBrains Mono', 'Fira Code', monospace;
   font-size: 13px;
+}
+
+/* Compact modifier — used on dense tables (Recent Routing Decisions) where
+ * we'd rather fit ~11 columns on screen than have huge per-cell padding.
+ * Tightens padding, font size, and forces nowrap so columns auto-size to
+ * their content rather than wrapping into multi-line cells. */
+.data-table--compact {
+  table-layout: auto;
+}
+.data-table--compact th,
+.data-table--compact td {
+  padding: 6px 10px;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.data-table--compact th {
+  letter-spacing: 0.3px;
+  font-size: 11px;
+}
+.data-table--compact .mono {
+  font-size: 12px;
+}
+/* Pair-cells render two values stacked compactly with a thin separator.
+ * Used to fit Score+Conf, Input+Output, Cache R+Cache W, In Cost+Out Cost,
+ * $/1M in+$/1M out as single columns without losing either value. */
+.data-table--compact .cell-pair {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  font-variant-numeric: tabular-nums;
+}
+.data-table--compact .cell-pair-sep {
+  color: var(--sai-text-muted);
+  opacity: 0.5;
 }
 
 /* ── Modal ────────────────────────────────────────────────────────────────── */
@@ -616,6 +650,20 @@
   user-select: none;
 }
 
+/* Dense modifier — tightens per-field vertical padding so a tall form
+ * (e.g. Model Routing's profile + 4 tier dropdowns + fallback + pinning +
+ * caching + actions) fits a typical viewport without forcing the page
+ * to scroll. Save/reset action row keeps its existing top padding so
+ * the buttons remain visually separated from the last field. */
+.config-form--dense .config-field {
+  padding: 8px 0;
+}
+.config-form--dense .config-field--nested {
+  padding-left: 28px;
+  padding-top: 6px;
+  padding-bottom: 8px;
+}
+
 .config-form-banner {
   padding: 10px 14px;
   margin-bottom: 16px;
@@ -782,9 +830,9 @@
 }
 
 .pill-purple {
-  background: rgba(142, 111, 251, 0.1);
+  background: rgba(103, 76, 103, 0.1);
   color: var(--sai-purple);
-  border: 1px solid rgba(142, 111, 251, 0.2);
+  border: 1px solid rgba(103, 76, 103, 0.2);
 }
 
 .pill-green {
@@ -900,10 +948,10 @@
   font-size: 13px;
   font-weight: 500;
   color: var(--sai-purple);
-  background: rgba(142, 111, 251, 0.08);
+  background: rgba(103, 76, 103, 0.08);
   padding: 5px 14px;
   border-radius: 20px;
-  border: 1px solid rgba(142, 111, 251, 0.15);
+  border: 1px solid rgba(103, 76, 103, 0.15);
 }
 
 .reconnect-desc {
@@ -982,6 +1030,12 @@
 .mt-16 { margin-top: 16px; }
 .mt-24 { margin-top: 24px; }
 .mb-16 { margin-bottom: 16px; }
+
+/* Spinner used by refresh-style buttons (Model Routing page header). */
+@keyframes sai-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
 
 @media (max-width: 1024px) {
   .grid-4 { grid-template-columns: repeat(2, 1fr); }

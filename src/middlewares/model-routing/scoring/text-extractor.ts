@@ -16,7 +16,20 @@
  *  - Skips system/developer role messages (they inflate scores with repeated keywords)
  *  - Only takes the last N messages (default 3) to reflect current intent
  *  - Handles both string content and content-block arrays
+ *
+ * OpenClaw-specific (Sapience AI Suite):
+ *  - Skips `role: 'custom'` messages — OpenClaw uses this role for the
+ *    `Sender (untrusted metadata):` envelope when chat-completion
+ *    translation splits the metadata out of the user-role body. The block
+ *    is AI-facing scaffolding, not user intent.
+ *  - Strips the OpenClaw timestamp prefix and any sentinel-delimited fenced
+ *    JSON metadata blocks that may still be inlined inside the user-role
+ *    text (the 2026.4.11 placement). Without this, the envelope blows past
+ *    the `shortMessageChars` threshold on every turn and dilutes keyword
+ *    density on longer ones.
  */
+
+import { stripOpenClawEnvelope } from '../../../shared/openclaw-envelope.js';
 
 export interface ExtractionInput {
   messages?: Array<{
@@ -36,10 +49,14 @@ export interface ExtractionInput {
 export function extractText(body: ExtractionInput, window = 3, includeSystem = false): string {
   if (!body.messages || !Array.isArray(body.messages)) return '';
 
-  // Filter out system/developer roles unless explicitly included
+  // Filter out system/developer/custom roles unless explicitly included.
+  // `custom` is OpenClaw's placement for sender-metadata envelopes — see
+  // the file-top doc for the rationale.
   const scorable = includeSystem
     ? body.messages
-    : body.messages.filter((m) => m.role !== 'system' && m.role !== 'developer');
+    : body.messages.filter(
+        (m) => m.role !== 'system' && m.role !== 'developer' && m.role !== 'custom'
+      );
 
   // Take last N messages
   const recent = scorable.slice(-window);
@@ -47,7 +64,7 @@ export function extractText(body: ExtractionInput, window = 3, includeSystem = f
   const parts: string[] = [];
   for (const msg of recent) {
     if (typeof msg.content === 'string') {
-      parts.push(msg.content);
+      parts.push(stripOpenClawEnvelope(msg.content));
     } else if (Array.isArray(msg.content)) {
       for (const block of msg.content) {
         if (
@@ -58,7 +75,7 @@ export function extractText(body: ExtractionInput, window = 3, includeSystem = f
           'text' in block &&
           typeof block.text === 'string'
         ) {
-          parts.push(block.text);
+          parts.push(stripOpenClawEnvelope(block.text));
         }
       }
     }

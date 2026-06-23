@@ -4,7 +4,7 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *     https://www.apache.org/licenses/LICENSE-2.0
  */
 
 /**
@@ -58,15 +58,20 @@ function json(res: http.ServerResponse, status: number, data: unknown): void {
   res.end(body);
 }
 
-function parseQuery(url: string): Record<string, string> {
+/**
+ * Parse a URL's query string into URLSearchParams.
+ *
+ * Returning URLSearchParams (rather than a plain object) avoids any dynamic
+ * property write keyed on user-controlled input — URLSearchParams stores
+ * entries internally with no prototype-chain interaction, which closes the
+ * CodeQL js/remote-property-injection finding at the source.
+ *
+ * Callers read individual fields via `.get(name)`.
+ */
+function parseQuery(url: string): URLSearchParams {
   const idx = url.indexOf('?');
-  if (idx === -1) return {};
-  const params: Record<string, string> = {};
-  for (const pair of url.slice(idx + 1).split('&')) {
-    const [k, v] = pair.split('=');
-    if (k) params[decodeURIComponent(k)] = decodeURIComponent(v || '');
-  }
-  return params;
+  if (idx === -1) return new URLSearchParams();
+  return new URLSearchParams(url.slice(idx + 1));
 }
 
 // ── JSONL / Pretty-JSON file reader ────────────────────────────────────────
@@ -282,7 +287,7 @@ export async function handleApiRoute(
       // Respond BEFORE running persistMiddlewareDefaults / cleanupMiddleware.
       // For model-routing those write openclaw.json, which triggers a gateway
       // restart that kills the suite-server mid-flight. If the response hasn't
-      // left yet, the dashboard's fetch aborts and shows a misleading
+      // left yet, the dashboard's HTTP call aborts and shows a misleading
       // "Failed to toggle" toast before transitioning to "waiting to connect".
       // The flag itself is already saved above; failures from the deferred
       // work were already caught at debug level, so fire-and-forget is safe.
@@ -325,7 +330,7 @@ export async function handleApiRoute(
       return;
     }
     if (urlPath === '/api/hitl/decisions' && method === 'GET') {
-      const limit = parseInt(query.limit || '100', 10);
+      const limit = parseInt(query.get('limit') || '100', 10);
       const records = await readAuditFile(HITL_DECISIONS_FILE, limit);
       json(res, 200, records);
       return;
@@ -384,8 +389,55 @@ export async function handleApiRoute(
       const { ModelRoutingPolicyStore } = await lazyImport(
         '../../middlewares/model-routing/storage/ModelRoutingPolicyStore.js'
       );
-      const body = JSON.parse(await readBody(req));
-      await ModelRoutingPolicyStore.update(body);
+      const body = JSON.parse(await readBody(req)) as Record<string, unknown>;
+
+      // Tier writes are scoped to a single profile via `body.profile`. The
+      // dashboard editor surfaces one profile's tiers at a time and submits
+      // only that slot, leaving the other profiles' configs untouched.
+      const rawProfile = typeof body.profile === 'string' ? body.profile : undefined;
+      const incomingTiers = body.tierOverrides;
+
+      const update: Record<string, unknown> = {};
+      // Sibling fields the dashboard may submit alongside tier edits — passed
+      // through unchanged.
+      for (const key of [
+        'sessionPinningEnabled',
+        'providerCacheEnabled',
+        'weightOverrides',
+        'boundaryOverrides',
+        'overrideThresholds',
+        'exclusions',
+        'providerConfigs',
+      ]) {
+        if (key in body) update[key] = body[key];
+      }
+
+      if (incomingTiers && typeof incomingTiers === 'object') {
+        // Hard allowlist before using `profile` as an object key. Explicit
+        // string comparisons + literal assignments narrow `safeProfile` to
+        // a finite union, giving CodeQL the dataflow proof it needs to clear
+        // the `js/prototype-polluting-assignment` alert (a runtime
+        // `isValidProfile()` predicate, while functionally equivalent, is
+        // not recognized as a sanitizer by the static analyzer).
+        let safeProfile: 'eco' | 'premium' | 'agentic';
+        if (rawProfile === 'eco') safeProfile = 'eco';
+        else if (rawProfile === 'premium') safeProfile = 'premium';
+        else if (rawProfile === 'agentic') safeProfile = 'agentic';
+        else {
+          json(res, 400, {
+            error: 'tierOverrides requires `profile` field set to eco|premium|agentic',
+          });
+          return;
+        }
+        const current = await ModelRoutingPolicyStore.load();
+        const existingByProfile = current.tierOverridesByProfile ?? {};
+        update.tierOverridesByProfile = {
+          ...existingByProfile,
+          [safeProfile]: incomingTiers,
+        };
+      }
+
+      await ModelRoutingPolicyStore.update(update);
       json(res, 200, { ok: true });
       return;
     }
@@ -406,7 +458,7 @@ export async function handleApiRoute(
       return;
     }
     if (urlPath === '/api/routing/audit' && method === 'GET') {
-      const limit = parseInt(query.limit || '100', 10);
+      const limit = parseInt(query.get('limit') || '100', 10);
       const records = await readAuditFile(MODEL_ROUTE_AUDIT_FILE, limit);
       json(res, 200, records);
       return;
@@ -443,10 +495,13 @@ export async function handleApiRoute(
         { dotPath: 'agents.defaults.contextPruning', value: pruningValue },
         { dotPath: 'agents.defaults.compaction.model', value: modelValue },
       ]);
-      await flushToOpenClaw();
+      const flushResult = await flushToOpenClaw();
 
       await ContextEditingPolicyStore.save(body);
-      json(res, 200, { ok: true });
+      // `restarted` lets the dashboard drive `notifyGatewayRestart()` only
+      // when the flush actually requested a restart — avoids flashing the
+      // overlay when nothing changed or when only hot-reloadable paths moved.
+      json(res, 200, { ok: true, restarted: flushResult.restarted });
       return;
     }
     if (urlPath === '/api/context-editing/stats' && method === 'GET') {
@@ -455,7 +510,7 @@ export async function handleApiRoute(
       return;
     }
     if (urlPath === '/api/context-editing/audit' && method === 'GET') {
-      const limit = parseInt(query.limit || '100', 10);
+      const limit = parseInt(query.get('limit') || '100', 10);
       const records = await readAuditFile(CTX_EDIT_AUDIT_FILE, limit);
       json(res, 200, records);
       return;
@@ -486,7 +541,7 @@ export async function handleApiRoute(
       return;
     }
     if (urlPath === '/api/guardrail/audit' && method === 'GET') {
-      const limit = parseInt(query.limit || '100', 10);
+      const limit = parseInt(query.get('limit') || '100', 10);
       const records = await readAuditFile(GUARDRAIL_AUDIT_FILE, limit);
       json(res, 200, records);
       return;
@@ -550,7 +605,7 @@ export async function handleApiRoute(
       return;
     }
     if (urlPath === '/api/pii/audit' && method === 'GET') {
-      const limit = parseInt(query.limit || '100', 10);
+      const limit = parseInt(query.get('limit') || '100', 10);
       const records = await readAuditFile(PII_SANITIZER_AUDIT_FILE, limit);
       json(res, 200, records);
       return;
@@ -706,8 +761,8 @@ export async function handleApiRoute(
     }
     if (urlPath === '/api/openclaw/sync' && method === 'POST') {
       const { flushToOpenClaw } = await lazyImport('./openclaw-sync.js');
-      const count = await flushToOpenClaw();
-      json(res, 200, { ok: true, flushed: count });
+      const result = await flushToOpenClaw();
+      json(res, 200, { ok: true, flushed: result.count, restarted: result.restarted });
       return;
     }
     if (urlPath === '/api/openclaw/stage' && method === 'PUT') {
@@ -789,9 +844,19 @@ export function handleSseRoute(req: http.IncomingMessage, res: http.ServerRespon
   const POLL_INTERVAL = 1000; // 1 second
 
   const onFileChange = (): void => {
+    // Open first, then fstat the fd — atomic w.r.t. the file at open time.
+    // Eliminates the TOCTOU race between exists/stat and openSync
+    // (CodeQL js/file-system-race).
+    let fd: number | undefined;
     try {
-      if (!fs.existsSync(filePath)) return;
-      const stat = fs.statSync(filePath);
+      try {
+        fd = fs.openSync(filePath, 'r');
+      } catch (err) {
+        // ENOENT etc. — file gone; nothing to do this tick.
+        if ((err as NodeJS.ErrnoException).code === 'ENOENT') return;
+        throw err;
+      }
+      const stat = fs.fstatSync(fd);
       if (stat.size <= lastSize) {
         // File was truncated or unchanged
         if (stat.size < lastSize) lastSize = 0;
@@ -799,10 +864,8 @@ export function handleSseRoute(req: http.IncomingMessage, res: http.ServerRespon
       }
 
       // Read only the new bytes
-      const fd = fs.openSync(filePath, 'r');
       const newBytes = Buffer.alloc(stat.size - lastSize);
       fs.readSync(fd, newBytes, 0, newBytes.length, lastSize);
-      fs.closeSync(fd);
       lastSize = stat.size;
 
       const newContent = newBytes.toString('utf-8');
@@ -838,6 +901,14 @@ export function handleSseRoute(req: http.IncomingMessage, res: http.ServerRespon
       }
     } catch (err) {
       logger.debug('[sse] Error reading log file', { source, error: err });
+    } finally {
+      if (fd !== undefined) {
+        try {
+          fs.closeSync(fd);
+        } catch {
+          /* ignore */
+        }
+      }
     }
   };
 

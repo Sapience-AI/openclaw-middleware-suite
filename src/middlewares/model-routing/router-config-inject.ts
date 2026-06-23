@@ -35,7 +35,7 @@ import type { ModelDefinitionConfig } from './router-provider.js';
 // Models allowlist entries (model IDs without provider prefix)
 // ---------------------------------------------------------------------------
 
-const ALLOWLIST_MODELS = ['auto', 'eco', 'premium', 'agentic'];
+const ALLOWLIST_MODELS = ['eco', 'premium', 'agentic'];
 
 // ---------------------------------------------------------------------------
 // injectModelsConfig — stage provider + allowlist writes
@@ -70,7 +70,7 @@ export async function injectModelsConfig(
       providerConfig.api = 'openai-completions';
     }
     if (!providerConfig.apiKey) {
-      providerConfig.apiKey = 'sapience-proxy-handles-routing';
+      providerConfig.apiKey = 'placeholder-sai-router';
     }
     // Always refresh models list
     providerConfig.models = modelList;
@@ -78,7 +78,7 @@ export async function injectModelsConfig(
     providerConfig = {
       baseUrl: expectedBaseUrl,
       api: 'openai-completions',
-      apiKey: 'sapience-proxy-handles-routing',
+      apiKey: 'placeholder-sai-router',
       models: modelList,
     };
   }
@@ -169,14 +169,17 @@ export function injectAuthProfile(): void {
         version: 1,
         profiles: {},
       };
-      if (existsSync(authPath)) {
-        try {
-          const existing = JSON.parse(readFileSync(authPath, 'utf8'));
-          if (existing.version && existing.profiles) {
-            store = existing;
-          }
-        } catch {
-          // Invalid JSON, use fresh store
+      // No existsSync precheck — attempt the read and tolerate ENOENT.
+      // Removing the precheck eliminates the TOCTOU window
+      // (CodeQL js/file-system-race).
+      try {
+        const existing = JSON.parse(readFileSync(authPath, 'utf8'));
+        if (existing.version && existing.profiles) {
+          store = existing;
+        }
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+          // Invalid JSON or other error — use fresh store
         }
       }
 
@@ -193,7 +196,7 @@ export function injectAuthProfile(): void {
       store.profiles[profileKey] = {
         type: 'api_key',
         provider: 'sai-router',
-        key: 'sapience-proxy-handles-routing',
+        key: 'placeholder-sai-router',
       };
 
       try {

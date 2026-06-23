@@ -4,7 +4,7 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *     https://www.apache.org/licenses/LICENSE-2.0
  */
 
 /**
@@ -37,7 +37,6 @@ import {
   buildRouterModelList,
   buildSapienceRouterProvider,
 } from '../middlewares/model-routing/router-provider.js';
-import { createOutputGuardrailHook } from '../middlewares/guardrail/OutputGuardrailHook.js';
 import { ConfigStore as GuardrailConfigStore } from '../middlewares/guardrail/storage/ConfigStore.js';
 import { GuardrailMiddleware } from '../middlewares/guardrail/GuardrailMiddleware.js';
 import { LimitPolicyStore } from '../middlewares/tool-call-limit/storage/LimitPolicyStore.js';
@@ -103,20 +102,33 @@ export const SapienceMiddlewareManifest: SapienceMiddlewarePluginManifest = {
 // All methods are optional — the gateway may not support all of them.
 // ---------------------------------------------------------------------------
 
-/** Subset of the OpenClaw plugin runtime used by Sapience Middleware. */
+/**
+ * Subset of the OpenClaw plugin runtime used by Sapience Middleware.
+ *
+ * Both methods below have been present since openclaw 2026.4.27 and are
+ * the only supported runtime config API for this package — our
+ * `peerDependencies.openclaw >= 2026.5.3` floor guarantees they exist.
+ * Earlier versions exposed `loadConfig` / `writeConfigFile` shims; those
+ * were dropped from this interface in 1.0.3 alongside the peerDep bump.
+ */
 export interface OpenClawRuntime {
   config: {
-    /** Returns the current OpenClaw config (process-global cached snapshot). */
-    loadConfig(): Record<string, unknown>;
+    /** Readonly snapshot of the live config. */
+    current(): Record<string, unknown>;
     /**
-     * Atomically write the full config to disk.
-     * Handles backup rotation, schema validation, env-var restoration,
-     * and notifies gateway write-listeners.
+     * Atomic config replace with explicit `afterWrite` policy.
+     * `"auto"` lets the gateway reload planner decide; `"restart"`
+     * forces a clean restart; `"none"` suppresses reload (caller owns
+     * the follow-up).
      */
-    writeConfigFile(
-      cfg: Record<string, unknown>,
-      options?: { envSnapshotForRestore?: Record<string, string | undefined> }
-    ): Promise<void>;
+    replaceConfigFile(params: {
+      nextConfig: Record<string, unknown>;
+      afterWrite:
+        | { mode: 'auto' }
+        | { mode: 'restart'; reason: string }
+        | { mode: 'none'; reason: string };
+      writeOptions?: { envSnapshotForRestore?: Record<string, string | undefined> };
+    }): Promise<unknown>;
   };
 }
 
@@ -236,7 +248,7 @@ export default {
     }
 
     // Capture the runtime reference so config-manager can use the gateway's
-    // atomic loadConfig/writeConfigFile instead of raw file I/O.
+    // atomic `current()` / `replaceConfigFile()` API instead of raw file I/O.
     if (api.runtime) {
       setOpenClawRuntime(api.runtime);
     }
@@ -294,7 +306,6 @@ export default {
         'context-editing': false,
         'model-routing': false,
         guardrail: false,
-        'output-guardrail': false,
         'pii-sanitizer': false,
         'tool-call-limit': false,
       };
@@ -428,56 +439,44 @@ export default {
           ...((hookCtx ?? {}) as Record<string, unknown>),
         });
 
+        // Single load-bearing hook: `before_model_resolve` fires before
+        // the gateway's SessionManager opens the JSONL ([run.ts:449] →
+        // [setup.ts:61]), which is the only safe window to open our own
+        // SM, append a compaction entry, and let the just-opened SM_A
+        // pick it up — without forking the DAG.
+        //
+        // This single registration replaces four legacy registrations
+        // (before_agent_start / before_prompt_build / agent_end /
+        // llm_output) used on openclaw <= 2026.4.23. Reasons:
+        //   - `before_agent_start` is `@deprecated` per
+        //     [hook-types.ts:803] in openclaw 2026.4.27.
+        //   - `agent_end` and `llm_output` are conversation-gated per
+        //     [registry.ts:1956-1977] and silently dropped for non-
+        //     bundled plugins (gate added in 2026.4.24).
+        //   - `before_prompt_build` would still register, but its job
+        //     was live stats sync that `before_model_resolve` already
+        //     performs at turn start. Dropping it removes redundant
+        //     work and keeps us clear of the prompt-injection gate
+        //     surface.
+        //
+        // The hook is ungated, non-deprecated, and has been firing with
+        // a stable shape since at least openclaw 2026.2.22 — well
+        // before our `peerDependencies.openclaw >= 2026.5.3` floor.
         tryOn(
           api,
-          'before_agent_start',
+          'before_model_resolve',
           (...args: unknown[]) => {
             if (!ContextEditingPolicyStore.isPluginEnabled()) return;
-            diag('>>> before_agent_start HOOK DISPATCHED (context-editing)', {
-              argCount: args.length,
-            });
-            return contextEditing.beforeAgentStart(mergeCtx(args[0], args[1]));
-          },
-          'context-editing:before_agent_start'
-        );
-
-        tryOn(
-          api,
-          'before_prompt_build',
-          (...args: unknown[]) => {
-            if (!ContextEditingPolicyStore.isPluginEnabled()) return;
-            diag('>>> before_prompt_build HOOK DISPATCHED', {
+            diag('>>> before_model_resolve HOOK DISPATCHED', {
               argCount: args.length,
               arg0Keys:
                 args[0] && typeof args[0] === 'object' ? Object.keys(args[0] as object) : [],
               arg1Keys:
                 args[1] && typeof args[1] === 'object' ? Object.keys(args[1] as object) : [],
             });
-            return contextEditing.beforePromptBuild(mergeCtx(args[0], args[1]));
+            return contextEditing.beforeModelResolve(mergeCtx(args[0], args[1]));
           },
-          'context-editing:before_prompt_build'
-        );
-
-        tryOn(
-          api,
-          'agent_end',
-          (...args: unknown[]) => {
-            if (!ContextEditingPolicyStore.isPluginEnabled()) return;
-            diag('>>> agent_end HOOK DISPATCHED', { argCount: args.length });
-            return contextEditing.agentEnd(mergeCtx(args[0], args[1]));
-          },
-          'context-editing:agent_end'
-        );
-
-        tryOn(
-          api,
-          'llm_output',
-          (...args: unknown[]) => {
-            if (!ContextEditingPolicyStore.isPluginEnabled()) return;
-            diag('>>> llm_output HOOK DISPATCHED', { argCount: args.length });
-            return contextEditing.llmOutput(mergeCtx(args[0], args[1]));
-          },
-          'context-editing:llm_output'
+          'context-editing:before_model_resolve'
         );
       }
       if (isFirstLoad && activeMiddlewares['context-editing'] !== true) {
@@ -529,7 +528,7 @@ export default {
             cfg.models.providers['sai-router'] = {
               baseUrl: `http://127.0.0.1:${routerPort}/v1`,
               api: 'openai-completions',
-              apiKey: 'sapience-proxy-handles-routing',
+              apiKey: 'placeholder-sai-router',
               models: modelList,
             };
           } catch (err) {
@@ -606,6 +605,19 @@ export default {
           'guardrail:before_agent_start'
         );
 
+        // `before_message_write` runs both stages of guardrail back-to-back
+        // inside `GuardrailMiddleware.beforeMessageWrite`:
+        //   1. Security write scanner — fires for all roles, may block /
+        //      rewrite / pass through.
+        //   2. Output scrubber — fires only for assistant messages when
+        //      `guardrail.outputScrubber.enabled` is true. Operates on the
+        //      security stage's rewrite if one occurred, else on the
+        //      original content.
+        // Both share the same per-turn gate (`isPluginEnabled`) and the
+        // same per-instance config (`resolveConfig()`), so external
+        // programmatic consumers calling `guardrail.beforeMessageWrite`
+        // get identical behavior to the plugin runtime — no extra
+        // factories or hook wiring needed on the consumer side.
         tryOn(
           api,
           'before_message_write',
@@ -622,21 +634,6 @@ export default {
         logger.info(
           'Sapience AI Suite: Guardrail is currently disabled; hooks are attached but inert until enabled.'
         );
-      }
-
-      // =================================================================
-      // Output Guardrail — metadata scrubber (before_message_write)
-      // Fires after the guardrail write scanner on the same hook.
-      // =================================================================
-      if (activeMiddlewares['output-guardrail'] === true) {
-        tryOn(
-          api,
-          'before_message_write',
-          createOutputGuardrailHook() as (...args: unknown[]) => unknown,
-          'output-guardrail:before_message_write'
-        );
-      } else if (isFirstLoad) {
-        logger.info('Sapience AI Suite: Output Guardrail middleware is disabled by config.');
       }
 
       // =================================================================

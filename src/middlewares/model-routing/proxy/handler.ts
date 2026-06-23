@@ -45,10 +45,12 @@ import { MomentumTracker } from '../session/momentum.js';
 import { SessionStore } from '../session/session-store.js';
 import { RoutingProfile, isValidProfile } from '../selection/profiles.js';
 import { CostTracker } from '../storage/cost-tracker.js';
+import { RoutingAuditLog } from '../storage/RoutingAuditLog.js';
 import { PluginRegistry, AfterForwardEvent } from '../plugins/types.js';
 import { fetchModelCatalog, toDiscoveredModels, CatalogModel } from '../storage/model-catalog.js';
 import { normalizeDiscoveredModels } from '../providers/discovery.js';
 import { MODEL_ROUTE_PROXY_LOG, MODEL_ROUTE_COST_FILE } from '../../../shared/storage/paths.js';
+import { stripIccMarker } from '../../../shared/icc-detection.js';
 
 // ---------------------------------------------------------------------------
 // Proxy Audit Logger — detailed step-by-step request tracing
@@ -58,6 +60,19 @@ const PROXY_AUDIT_FILE = MODEL_ROUTE_PROXY_LOG;
 
 let proxyAuditEnsured = false;
 
+/**
+ * Strip newlines and control characters from a logged field, and cap length.
+ * Prevents log injection (CodeQL js/http-to-file-access) where attacker-
+ * controlled HTTP input could forge log lines or bloat the audit file.
+ */
+function sanitizeLogField(s: string, maxLen = 2048): string {
+  // Replace CR/LF and other ASCII control chars (0x00-0x1F, 0x7F) with a
+  // single space so a malicious header cannot fabricate a fake log line.
+  // eslint-disable-next-line no-control-regex
+  const cleaned = s.replace(/[\x00-\x1f\x7f]/g, ' ');
+  return cleaned.length > maxLen ? cleaned.slice(0, maxLen) + '…' : cleaned;
+}
+
 function proxyLog(reqId: string, step: string, detail?: string | Record<string, unknown>): void {
   try {
     if (!proxyAuditEnsured) {
@@ -65,13 +80,15 @@ function proxyLog(reqId: string, step: string, detail?: string | Record<string, 
       proxyAuditEnsured = true;
     }
     const ts = new Date().toISOString();
+    const safeReqId = sanitizeLogField(reqId, 128);
+    const safeStep = sanitizeLogField(step, 256);
     const detailStr =
       detail === undefined
         ? ''
         : typeof detail === 'string'
-          ? ` | ${detail}`
-          : ` | ${JSON.stringify(detail)}`;
-    fs.appendFileSync(PROXY_AUDIT_FILE, `[${ts}] [${reqId}] ${step}${detailStr}\n`);
+          ? ` | ${sanitizeLogField(detail)}`
+          : ` | ${sanitizeLogField(JSON.stringify(detail))}`;
+    fs.appendFileSync(PROXY_AUDIT_FILE, `[${ts}] [${safeReqId}] ${safeStep}${detailStr}\n`);
   } catch {
     /* never crash the proxy for logging */
   }
@@ -82,7 +99,15 @@ function proxyLog(reqId: string, step: string, detail?: string | Record<string, 
 const GLOBAL_REQUEST_TIMEOUT_MS = 180_000;
 
 // ---------------------------------------------------------------------------
-// Stats (in-memory, reset on restart)
+// Stats — in-memory cumulative counters, hydrated from the audit log on
+// module load so the values survive gateway restarts.
+//
+// The audit log (MODEL_ROUTE_AUDIT_FILE) is the persisted source of truth:
+// every routed request appends one entry with its tier. On startup we walk
+// the file and seed `stats.total` / `stats.byTier` from those entries; on
+// each subsequent request the proxy increments the in-memory counters.
+// `startedAt` still tracks the current process start (it labels "uptime",
+// not "all-time start"), but the request counters are now persistent.
 // ---------------------------------------------------------------------------
 
 const stats: RoutingStats = {
@@ -90,6 +115,18 @@ const stats: RoutingStats = {
   byTier: { SIMPLE: 0, STANDARD: 0, COMPLEX: 0, REASONING: 0 },
   startedAt: new Date().toISOString(),
 };
+
+// Best-effort hydration. A missing or unreadable audit file leaves the
+// counters at zero, which is the same result as before the fix — no
+// regression risk for fresh installs or corrupted audit files.
+try {
+  const hydrated = new RoutingAuditLog().computeTierCounters();
+  stats.total = hydrated.total;
+  stats.byTier = hydrated.byTier;
+} catch {
+  // Swallow — `computeTierCounters` already logs internally; we don't
+  // want a startup failure here to take down the proxy module.
+}
 
 export function getStats(): RoutingStats {
   return { ...stats, byTier: { ...stats.byTier } };
@@ -266,7 +303,12 @@ export function handleHealth(
     JSON.stringify({
       status: 'ok',
       port: config.port,
-      tiers: Object.fromEntries(Object.entries(config.tiers).map(([t, c]) => [t, c.primary])),
+      tiersByProfile: Object.fromEntries(
+        Object.entries(config.tiersByProfile).map(([p, tiers]) => [
+          p,
+          Object.fromEntries(Object.entries(tiers).map(([t, c]) => [t, c.primary])),
+        ])
+      ),
       providers: Object.keys(config.providers),
       profile: config.defaultProfile,
       sessions: sessionStore?.size || 0,
@@ -427,9 +469,11 @@ async function processRequest(
   const profile = resolveProfile(req, config, isMetaModel ? requestModel : undefined);
 
   // ── Resolve effective tier config based on profile ─────────────────────
-  // Always start from config.tiers (which includes the user's overrides).
-  // Profile-based generation only fills tiers the user hasn't explicitly set.
-  const effectiveTiers = config.tiers;
+  // Per-profile tier map: each profile (eco/premium/agentic) carries its own
+  // primary/fallbacks per tier. `tiersByProfile` is fully populated by
+  // buildConfig (defaults from `PROFILE_CONFIGS` for any profile without
+  // an explicit override), so this lookup never misses.
+  const effectiveTiers = config.tiersByProfile[profile];
 
   const lastMsg = getLastUserMessage(body);
   proxyLog(reqId, 'METADATA', {
@@ -556,6 +600,44 @@ async function processRequest(
 
   proxyLog(reqId, 'FINAL_TIER', { tier: scoringResult.tier, reason: scoringResult.reason });
 
+  // ── Cost attribution source ────────────────────────────────────────────
+  // Cost ledger and budget alerts split spend by caller kind. ICC compaction
+  // calls land under `'icc'`; everything else (real user chat turns, manual
+  // tier overrides, momentum/pinning hits) lands under `'chat'`.
+  const costSource: 'chat' | 'icc' = scoringResult.reason === 'icc_extraction' ? 'icc' : 'chat';
+
+  // ── Strip ICC marker before forwarding upstream ────────────────────────
+  // The marker was a signal for our scoring override only; the upstream
+  // LLM provider must not see it. Mutates the user-role message bodies
+  // in-place so the rest of the proxy (dedup hash already computed above,
+  // streaming, response cache) continues to work uniformly.
+  if (scoringResult.reason === 'icc_extraction' && Array.isArray(body.messages)) {
+    body.messages = (body.messages as Array<{ role?: string; content?: unknown }>).map((msg) => {
+      if (msg.role !== 'user') return msg;
+      if (typeof msg.content === 'string') {
+        return { ...msg, content: stripIccMarker(msg.content) };
+      }
+      if (Array.isArray(msg.content)) {
+        return {
+          ...msg,
+          content: msg.content.map((block) => {
+            if (
+              block &&
+              typeof block === 'object' &&
+              'type' in block &&
+              (block as { type?: string }).type === 'text' &&
+              typeof (block as { text?: unknown }).text === 'string'
+            ) {
+              return { ...block, text: stripIccMarker((block as { text: string }).text) };
+            }
+            return block;
+          }),
+        };
+      }
+      return msg;
+    }) as typeof body.messages;
+  }
+
   // ── Build fallback chain ───────────────────────────────────────────────
   const chain = getFallbackChain(scoringResult.tier, effectiveTiers);
   const exclusions = config.exclusions || [];
@@ -583,6 +665,22 @@ async function processRequest(
   let responseCacheReadTokens = 0;
   let responseCacheWriteTokens = 0;
   const wasCached = false;
+  // For streaming responses, the synchronous code path reaches the audit-emit
+  // block (below) BEFORE the upstream stream has ended — `responseInputTokens`
+  // etc. would still be 0, so the audit log would record stale zero usage and
+  // the dashboard's "In / Out / Cache R / W / In Cost / Out Cost" columns
+  // would show "-". The cost-tracker stays correct because its `record()`
+  // call lives inside the stream-end callback (real `streamUsage`), but the
+  // audit log doesn't get a second chance — that mismatch is exactly why the
+  // dashboard and CLI disagreed. Flag flips inside both streaming branches
+  // so the synchronous `emitDecision()` at end-of-loop is skipped, and the
+  // stream-end / stream-error callbacks call `emitDecision()` themselves
+  // after copying authoritative tokens into the response* locals.
+  let isStreamingResponse = false;
+  // Guard so emitDecision fires exactly once per request even if both
+  // upstream.on('end') and upstream.on('error') manage to fire (or a buggy
+  // adapter calls onStreamUsage twice).
+  let decisionEmitted = false;
 
   for (let i = 0; i < filteredChain.length; i++) {
     const modelId = filteredChain[i];
@@ -706,7 +804,7 @@ async function processRequest(
           'X-Router-Score': scoringResult.score.toFixed(4),
           'X-Router-Reason': scoringResult.reason,
         };
-        if (profile && profile !== 'auto') routerHdrs['X-Router-Profile'] = profile;
+        if (profile) routerHdrs['X-Router-Profile'] = profile;
         res.writeHead(200, routerHdrs);
       }
       safeWrite(res, ': heartbeat\n\n');
@@ -773,7 +871,7 @@ async function processRequest(
               'X-Router-Reason': scoringResult.reason,
             };
             if (fallbackFrom) routerHdrs['X-Router-Fallback-From'] = fallbackFrom;
-            if (profile && profile !== 'auto') routerHdrs['X-Router-Profile'] = profile;
+            if (profile) routerHdrs['X-Router-Profile'] = profile;
             res.writeHead(200, routerHdrs);
           }
 
@@ -782,6 +880,12 @@ async function processRequest(
           const converter = resolved.adapter.createStreamConverter!(cleanModelId);
           const streamUsageExtractor = new StreamUsageExtractor();
           let sseBuffer = '';
+
+          // Mark this as a streaming response so the post-loop synchronous
+          // path skips its emitDecision() call — we'll emit ourselves from
+          // the upstream end / error handlers below, after the authoritative
+          // streamUsage tokens are folded into the response* locals.
+          isStreamingResponse = true;
 
           upstream.on('data', (chunk: Buffer) => {
             // Normalize \r\n → \n (Google uses \r\n line endings, SSE spec allows both)
@@ -820,18 +924,29 @@ async function processRequest(
             res.end();
             proxyLog(reqId, 'STREAM_CONVERT_DONE', `elapsed=${Date.now() - startMs}ms`);
 
-            // Record authoritative cost from stream usage data
+            // Record authoritative cost from stream usage data + fold the
+            // same numbers into the response* locals so the deferred
+            // emitDecision() call below sees real tokens (was the source
+            // of the dashboard's blank In/Out/Cache columns).
             const streamUsage = streamUsageExtractor.getUsage();
-            if (streamUsage && costTracker) {
-              costTracker.record({
-                model: usedModel,
-                inputTokens: streamUsage.input,
-                outputTokens: streamUsage.output,
-                cacheReadTokens: streamUsage.cacheRead,
-                cacheWriteTokens: streamUsage.cacheWrite,
-              });
-              proxyLog(reqId, 'STREAM_COST_RECORDED', { ...streamUsage });
+            if (streamUsage) {
+              responseInputTokens = streamUsage.input;
+              responseOutputTokens = streamUsage.output;
+              responseCacheReadTokens = streamUsage.cacheRead;
+              responseCacheWriteTokens = streamUsage.cacheWrite;
+              if (costTracker) {
+                costTracker.record({
+                  model: usedModel,
+                  inputTokens: streamUsage.input,
+                  outputTokens: streamUsage.output,
+                  cacheReadTokens: streamUsage.cacheRead,
+                  cacheWriteTokens: streamUsage.cacheWrite,
+                  source: costSource,
+                });
+                proxyLog(reqId, 'STREAM_COST_RECORDED', { ...streamUsage });
+              }
             }
+            emitDecision();
           });
 
           upstream.on('error', (err: Error) => {
@@ -842,6 +957,16 @@ async function processRequest(
             safeWrite(res, `data: ${errPayload}\n\n`);
             safeWrite(res, 'data: [DONE]\n\n');
             res.end();
+            // Fold whatever partial usage we extracted before the error so
+            // the audit log carries best-effort numbers instead of zeros.
+            const streamUsage = streamUsageExtractor.getUsage();
+            if (streamUsage) {
+              responseInputTokens = streamUsage.input;
+              responseOutputTokens = streamUsage.output;
+              responseCacheReadTokens = streamUsage.cacheRead;
+              responseCacheWriteTokens = streamUsage.cacheWrite;
+            }
+            emitDecision();
           });
 
           res.on('close', () => {
@@ -935,6 +1060,13 @@ async function processRequest(
           socketDestroyed: res.destroyed,
         });
 
+        // For streaming responses through writeResponse, defer the audit
+        // emit to the onStreamUsage callback (fires when upstream ends or
+        // errors out). The synchronous emitDecision() at end-of-loop is
+        // skipped via `isStreamingResponse`.
+        if (result.isStream) {
+          isStreamingResponse = true;
+        }
         writeResponse(
           res,
           result,
@@ -944,16 +1076,24 @@ async function processRequest(
           profile,
           result.isStream
             ? (streamUsage) => {
-                if (streamUsage && costTracker) {
-                  costTracker.record({
-                    model: usedModel,
-                    inputTokens: streamUsage.input,
-                    outputTokens: streamUsage.output,
-                    cacheReadTokens: streamUsage.cacheRead,
-                    cacheWriteTokens: streamUsage.cacheWrite,
-                  });
-                  proxyLog(reqId, 'STREAM_COST_RECORDED', { ...streamUsage });
+                if (streamUsage) {
+                  responseInputTokens = streamUsage.input;
+                  responseOutputTokens = streamUsage.output;
+                  responseCacheReadTokens = streamUsage.cacheRead;
+                  responseCacheWriteTokens = streamUsage.cacheWrite;
+                  if (costTracker) {
+                    costTracker.record({
+                      model: usedModel,
+                      inputTokens: streamUsage.input,
+                      outputTokens: streamUsage.output,
+                      cacheReadTokens: streamUsage.cacheRead,
+                      cacheWriteTokens: streamUsage.cacheWrite,
+                      source: costSource,
+                    });
+                    proxyLog(reqId, 'STREAM_COST_RECORDED', { ...streamUsage });
+                  }
                 }
+                emitDecision();
               }
             : undefined
         );
@@ -1071,38 +1211,10 @@ async function processRequest(
     sessionStore.pinModel(sessionId, usedModel, scoringResult.tier);
   }
 
-  // ── Cost tracking ───────────────────────────────────────────────────
-  // Non-streaming: tokens are authoritative (from provider response body via
-  // extractUsage) — record to CostTracker now.
-  // Streaming: authoritative tokens arrive asynchronously via StreamUsageExtractor
-  // in the stream end handler — already recorded there (see onStreamUsage callback
-  // in writeResponse and the converted-streaming end handler above).
-  // The estimateCost() call is read-only and provides a value for the audit log.
-  if (
-    costTracker &&
-    responseStatus < 400 &&
-    (responseInputTokens > 0 || responseOutputTokens > 0)
-  ) {
-    costTracker.record({
-      model: usedModel,
-      inputTokens: responseInputTokens,
-      outputTokens: responseOutputTokens,
-      cacheReadTokens: responseCacheReadTokens,
-      cacheWriteTokens: responseCacheWriteTokens,
-    });
-  }
-  const costEstimateUsd = costTracker
-    ? costTracker.estimateCost(
-        usedModel,
-        responseInputTokens || estimatedTokens,
-        responseOutputTokens,
-        responseCacheReadTokens,
-        responseCacheWriteTokens
-      )
-    : 0;
-
   // Mark request as completed (prevents client disconnect handler from
-  // redundantly cleaning up dedup entries).
+  // redundantly cleaning up dedup entries). Always synchronous — fires as
+  // soon as the upstream connection settled, regardless of whether a
+  // streaming body is still flowing.
   clearTimeout(globalTimeoutId);
   requestCompleted = true;
 
@@ -1115,55 +1227,115 @@ async function processRequest(
     elapsed: Date.now() - startMs,
   });
 
-  // ── Update stats ────────────────────────────────────────────────────────
-  stats.total++;
-  stats.byTier[scoringResult.tier]++;
+  // ── emitDecision: builds the audit decision + plugin afterForward event
+  // from the *current* values of `responseInputTokens` / `responseOutputTokens`
+  // / `responseCache{Read,Write}Tokens`. Called synchronously for non-streaming
+  // and from the stream-end / stream-error callbacks for streaming, so the
+  // audit log captures real authoritative tokens (matching what cost-tracker
+  // sees) instead of the pre-stream zeros that produced "-" cells in the
+  // dashboard's Recent Routing Decisions table.
+  //
+  // Also updates `stats.total` / `stats.byTier` here so the dashboard's
+  // Routing Stats counters fire on actual completion rather than on the
+  // synchronous return from `writeResponse(...)` (which happens before the
+  // upstream stream has started flowing for streaming responses).
+  //
+  // The non-streaming `costTracker.record()` call also lives here — for
+  // streaming, the record() call still lives in the stream-end callbacks
+  // below (which run BEFORE this function), so we guard against double-record
+  // by skipping the call when `isStreamingResponse` is set.
+  const emitDecision = (): void => {
+    if (decisionEmitted) return;
+    decisionEmitted = true;
 
-  // ── Build routing decision for audit log ────────────────────────────────
-  const latencyMs = Date.now() - startMs;
-  const decision: RoutingDecision = {
-    tier: scoringResult.tier,
-    model: usedModel,
-    confidence: scoringResult.confidence,
-    score: scoringResult.score,
-    reason: scoringResult.reason,
-    dimensions: scoringResult.dimensions,
-    latencyMs,
-    fallbackFrom,
-    fallbackAttempts: attempts.length > 0 ? attempts : undefined,
-    costEstimateUsd,
-  };
-
-  if (onRouteCallback) {
-    try {
-      onRouteCallback(decision);
-    } catch {
-      /* ignore */
+    if (
+      costTracker &&
+      !isStreamingResponse &&
+      responseStatus < 400 &&
+      (responseInputTokens > 0 || responseOutputTokens > 0)
+    ) {
+      costTracker.record({
+        model: usedModel,
+        inputTokens: responseInputTokens,
+        outputTokens: responseOutputTokens,
+        cacheReadTokens: responseCacheReadTokens,
+        cacheWriteTokens: responseCacheWriteTokens,
+        source: costSource,
+      });
     }
-  }
 
-  // ── Plugin: onAfterForward (fire-and-forget) ──────────────────────────
-  if (pluginRegistry?.hasPlugins) {
-    const afterEvent: AfterForwardEvent = {
+    const costSplit = costTracker
+      ? costTracker.splitCost(
+          usedModel,
+          responseInputTokens || estimatedTokens,
+          responseOutputTokens,
+          responseCacheReadTokens,
+          responseCacheWriteTokens
+        )
+      : { inputCostUsd: 0, outputCostUsd: 0, totalCostUsd: 0 };
+    const costEstimateUsd = costSplit.totalCostUsd;
+
+    stats.total++;
+    stats.byTier[scoringResult.tier]++;
+
+    const latencyMs = Date.now() - startMs;
+    const decision: RoutingDecision = {
       tier: scoringResult.tier,
       model: usedModel,
-      provider: resolveProvider(
-        usedModel,
-        config.providers,
-        discoveredModelsCache,
-        config.targetBaseUrl,
-        config.targetApiKey
-      ).providerName,
-      status: responseStatus,
+      confidence: scoringResult.confidence,
+      score: scoringResult.score,
+      reason: scoringResult.reason,
+      dimensions: scoringResult.dimensions,
       latencyMs,
-      inputTokens: responseInputTokens || estimatedTokens,
-      outputTokens: responseOutputTokens,
+      fallbackFrom,
+      fallbackAttempts: attempts.length > 0 ? attempts : undefined,
       costEstimateUsd,
-      cached: wasCached,
-      fallback: !!fallbackFrom,
-      sessionId,
+      inputTokens: responseInputTokens || undefined,
+      outputTokens: responseOutputTokens || undefined,
+      cacheReadTokens: responseCacheReadTokens || undefined,
+      cacheWriteTokens: responseCacheWriteTokens || undefined,
+      inputCostUsd: costSplit.inputCostUsd || undefined,
+      outputCostUsd: costSplit.outputCostUsd || undefined,
     };
-    pluginRegistry.fireAfterForward(afterEvent);
+
+    if (onRouteCallback) {
+      try {
+        onRouteCallback(decision);
+      } catch {
+        /* ignore */
+      }
+    }
+
+    if (pluginRegistry?.hasPlugins) {
+      const afterEvent: AfterForwardEvent = {
+        tier: scoringResult.tier,
+        model: usedModel,
+        provider: resolveProvider(
+          usedModel,
+          config.providers,
+          discoveredModelsCache,
+          config.targetBaseUrl,
+          config.targetApiKey
+        ).providerName,
+        status: responseStatus,
+        latencyMs,
+        inputTokens: responseInputTokens || estimatedTokens,
+        outputTokens: responseOutputTokens,
+        costEstimateUsd,
+        cached: wasCached,
+        fallback: !!fallbackFrom,
+        sessionId,
+      };
+      pluginRegistry.fireAfterForward(afterEvent);
+    }
+  };
+
+  // For streaming, the stream-end / stream-error callbacks will call
+  // emitDecision() themselves once `streamUsage` has been folded into the
+  // response* locals. For non-streaming (and for error responses written
+  // synchronously by writeErrorResponse), emit now.
+  if (!isStreamingResponse) {
+    emitDecision();
   }
 }
 
@@ -1286,7 +1458,7 @@ function writeResponse(
   if (fallbackFrom) {
     routerHeaders['X-Router-Fallback-From'] = fallbackFrom;
   }
-  if (profile && profile !== 'auto') {
+  if (profile) {
     routerHeaders['X-Router-Profile'] = profile;
   }
 
@@ -1365,7 +1537,7 @@ function writeStreamedResponse(
       'X-Router-Reason': scoringResult.reason,
     };
     if (fallbackFrom) routerHeaders['X-Router-Fallback-From'] = fallbackFrom;
-    if (profile && profile !== 'auto') routerHeaders['X-Router-Profile'] = profile;
+    if (profile) routerHeaders['X-Router-Profile'] = profile;
 
     res.writeHead(200, routerHeaders);
   }
@@ -1591,8 +1763,21 @@ function tryParseError(body: Buffer): string | undefined {
  *
  * OpenClaw's openai-completions transport does NOT forward session headers, so
  * the header path almost never fires.  The content-derived ID is stable across
- * turns within the same conversation because the first user message stays the
- * same, giving us a reliable session anchor for model-pinning.
+ * turns within the same conversation as long as the first user message stays
+ * the same.
+ *
+ * Context-Editing interaction (intentional re-anchor): when CE compacts a
+ * session it rewrites the JSONL so the original first user message is no
+ * longer at index 0 of the prompt sent here. The next request therefore
+ * derives a new session ID, and all session-keyed routing state — pinned
+ * tier, momentum history, three-strike state, provider-cache locality —
+ * effectively resets. This is by design: compaction is treated as a context
+ * phase boundary, and pre-compaction routing signals are not necessarily
+ * appropriate after the conversation's character has materially changed.
+ * The matching surface signal for operators is the "Compaction completed
+ * successfully" log emitted by ContextEditingMiddleware (carrying
+ * `routingSessionWillReanchor: true`) — correlate timestamps if a pinned
+ * model appears to flip mid-conversation.
  */
 function extractSessionId(req: IncomingMessage, body?: Record<string, unknown>): string | null {
   // 1. Explicit header (ideal but rarely present from OpenClaw)
@@ -1640,7 +1825,7 @@ const PROVIDER_PREFIX = 'sai-router/';
 const LEGACY_PROVIDER_PREFIX = 'sapience-router/';
 
 /** Meta-model IDs that trigger smart routing (matched after prefix stripping). */
-const ROUTING_META_MODELS = new Set(['auto', 'eco', 'premium', 'agentic']);
+const ROUTING_META_MODELS = new Set(['eco', 'premium', 'agentic']);
 
 /**
  * Strip the "sai-router/" (or legacy "sapience-router/") prefix from a model ID if present.
@@ -1677,17 +1862,22 @@ function resolveProfile(
   // Meta-model overrides profile (e.g. model="sai-router/eco" → eco profile)
   if (requestModel) {
     const stripped = stripProviderPrefix(requestModel);
-    if (stripped !== 'auto' && isValidProfile(stripped)) {
+    if (isValidProfile(stripped)) {
       return stripped;
     }
-    // "auto" uses the config default profile
+    // Unknown / legacy meta-model (e.g. "sai-router/auto" from older clients)
+    // falls through to header-then-default-profile resolution below.
   }
 
   const headerProfile = req.headers['x-router-profile'] as string | undefined;
   if (headerProfile && isValidProfile(headerProfile)) {
     return headerProfile;
   }
-  return config.defaultProfile;
+  // Absolute fallback: programmatic consumers can set `defaultProfile` to
+  // override which profile unmatched requests route through; otherwise eco
+  // (cheapest) is the safest default.
+  const fallback: string = config.defaultProfile;
+  return isValidProfile(fallback) ? (fallback as RoutingProfile) : 'eco';
 }
 
 /**

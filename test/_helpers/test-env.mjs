@@ -1,6 +1,6 @@
 import os from 'node:os';
 import path from 'node:path';
-import { mkdtempSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 
 // ── Tempdir + combined setup ─────────────────────────────────────────
 
@@ -91,3 +91,21 @@ export function restoreEnvKey(key, saved) {
 export const clearOpenAIKey = () => clearEnvKey('OPENAI_API_KEY');
 export const setOpenAIKey = (value) => setEnvKey('OPENAI_API_KEY', value);
 export const restoreOpenAIKey = (saved) => restoreEnvKey('OPENAI_API_KEY', saved);
+
+// ── Suite-store seeding (for tests that need a pre-populated store) ──
+
+export function seedSuiteStore(suiteHome, storeFile, key, value) {
+  mkdirSync(suiteHome, { recursive: true });
+  // No existsSync precheck — read directly and tolerate ENOENT.
+  // Removing the precheck eliminates the TOCTOU window
+  // (CodeQL js/file-system-race).
+  let existing;
+  try {
+    existing = JSON.parse(readFileSync(storeFile, 'utf-8'));
+  } catch (err) {
+    if (err.code !== 'ENOENT') throw err;
+    existing = {};
+  }
+  existing[key] = value;
+  writeFileSync(storeFile, JSON.stringify(existing, null, 2));
+}

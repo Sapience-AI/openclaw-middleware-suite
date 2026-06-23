@@ -36,3 +36,9 @@ coverage/
 
 # Security Reports
 SecurityReports/
+
+# Other
+blog/
+
+# ClawHub Static Scan
+scripts/clawhub-static-scanner.mjs

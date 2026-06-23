@@ -8,7 +8,7 @@
  * additional conditions stated in the upstream OpenGuardrails LICENSE.
  * You may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *     https://www.apache.org/licenses/LICENSE-2.0
  *
  * This file contains code and detection rules derived from both:
  *   - OpenClaw Shield (https://github.com/knostic/openclaw-shield)

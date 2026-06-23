@@ -1,0 +1,168 @@
+name: Slack Notifications
+
+# Fires on three event types:
+#   1. A new pull request is opened
+#   2. A new issue is opened
+#   3. A new code-scanning (CodeQL/SAST) alert is created
+#
+# All three post a structured message to the configured Slack channel.
+#
+# ── Required configuration ────────────────────────────────────────
+# Target channel: C0ALY3XA6GZ (hardcoded below).
+#
+# Still needs ONE secret to be set:
+#   Settings → Secrets and variables → Actions → Secrets → New repository secret
+#     SLACK_BOT_TOKEN    Slack bot token, prefix `xoxb-`
+#                        (https://api.slack.com/apps → OAuth & Permissions)
+#                        Required scope: chat:write
+#                        The bot must be invited to channel C0ALY3XA6GZ:
+#                          /invite @YourBotName
+#
+# Until SLACK_BOT_TOKEN is set, the workflow runs but the post step fails
+# with `invalid_auth` (clear error in the Actions log).
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review]
+  issues:
+    types: [opened, reopened]
+  # NOTE: GitHub's `code_scanning_alert` workflow trigger is currently
+  # unsupported by the Actions parser on this repo. For security-alert
+  # → Slack notifications, use the GitHub Slack app's `/github subscribe`
+  # command in the channel with the `security_alert` filter, or wire a
+  # repo webhook to a Slack incoming webhook URL.
+  # Manual smoke test — fire from Actions tab → "Run workflow" to verify
+  # Slack creds + channel access. Posts a synthetic test message.
+  workflow_dispatch:
+    inputs:
+      test_message:
+        description: 'Optional test message body (leave blank for default)'
+        required: false
+        default: ''
+
+permissions: {}
+
+jobs:
+  notify:
+    name: Post to Slack
+    # ARC scale-set routing: use bare scale-set name (no array).
+    # Sapience self-hosted runner pool — courtesy of @thomas (DevOps).
+    runs-on: sapience-default
+    timeout-minutes: 5
+    permissions:
+      contents: read
+
+    steps:
+      # ── 1. Build a Slack-flavored payload based on the event type ──
+      - name: Compose Slack payload
+        id: payload
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REPO_FULL: ${{ github.repository }}
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+
+          # Pull-request fields
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_DRAFT: ${{ github.event.pull_request.draft }}
+          PR_BASE: ${{ github.event.pull_request.base.ref }}
+          PR_HEAD: ${{ github.event.pull_request.head.ref }}
+
+          # Issue fields
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_URL: ${{ github.event.issue.html_url }}
+          ISSUE_AUTHOR: ${{ github.event.issue.user.login }}
+          ISSUE_LABELS: ${{ toJson(github.event.issue.labels) }}
+
+          # Code-scanning alert fields
+          ALERT_NUMBER: ${{ github.event.alert.number }}
+          ALERT_URL: ${{ github.event.alert.html_url }}
+          ALERT_RULE_ID: ${{ github.event.alert.rule.id }}
+          ALERT_RULE_DESC: ${{ github.event.alert.rule.description }}
+          ALERT_SEVERITY: ${{ github.event.alert.rule.security_severity_level }}
+          ALERT_TOOL: ${{ github.event.alert.tool.name }}
+          ALERT_FILE: ${{ github.event.alert.most_recent_instance.location.path }}
+
+          # Manual-test fields
+          TEST_MESSAGE: ${{ inputs.test_message }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+          case "$EVENT_NAME" in
+            workflow_dispatch)
+              MSG="${TEST_MESSAGE:-Slack notifications wired up correctly. This is a synthetic smoke test from the Actions tab.}"
+              HEADER="✅ *${REPO_FULL}* — Slack notification smoke test"
+              BODY=$(jq -n \
+                --arg title "$MSG" \
+                --arg url "${REPO_URL}/actions" \
+                --arg author "$ACTOR" \
+                '{title: $title, url: $url, author: $author}')
+              ;;
+            pull_request)
+              EMOJI="🔀"
+              ACTION_LABEL="opened"
+              if [ "$PR_DRAFT" = "true" ]; then
+                EMOJI="🚧"
+                ACTION_LABEL="opened (draft)"
+              fi
+              HEADER="${EMOJI} Pull request ${ACTION_LABEL} in *${REPO_FULL}*"
+              BODY=$(jq -n \
+                --arg title "#${PR_NUMBER} ${PR_TITLE}" \
+                --arg url "$PR_URL" \
+                --arg author "$PR_AUTHOR" \
+                --arg branch "${PR_HEAD} → ${PR_BASE}" \
+                '{title: $title, url: $url, author: $author, branch: $branch}')
+              ;;
+            issues)
+              HEADER="📝 Issue opened in *${REPO_FULL}*"
+              BODY=$(jq -n \
+                --arg title "#${ISSUE_NUMBER} ${ISSUE_TITLE}" \
+                --arg url "$ISSUE_URL" \
+                --arg author "$ISSUE_AUTHOR" \
+                --argjson labels "$ISSUE_LABELS" \
+                '{title: $title, url: $url, author: $author, labels: ($labels | map(.name) | join(", "))}')
+              ;;
+            *)
+              echo "Unsupported event: $EVENT_NAME"
+              exit 1
+              ;;
+          esac
+
+          # Build Slack Block Kit message
+          PAYLOAD=$(jq -n \
+            --arg header "$HEADER" \
+            --argjson body "$BODY" \
+            --arg event "$EVENT_NAME" \
+            '{
+              blocks: [
+                { type: "section", text: { type: "mrkdwn", text: $header } },
+                { type: "section", text: { type: "mrkdwn", text: ("*<" + $body.url + "|" + $body.title + ">*") } },
+                { type: "context", elements: ([
+                    (if $body.author then { type: "mrkdwn", text: ("by `@" + $body.author + "`") } else null end),
+                    (if $body.branch then { type: "mrkdwn", text: ("branch: `" + $body.branch + "`") } else null end),
+                    (if $body.labels and ($body.labels | length > 0) then { type: "mrkdwn", text: ("labels: " + $body.labels) } else null end),
+                    (if $body.severity then { type: "mrkdwn", text: ("severity: *" + $body.severity + "*") } else null end),
+                    (if $body.file then { type: "mrkdwn", text: ("file: `" + $body.file + "`") } else null end)
+                  ] | map(select(. != null)))
+                }
+              ]
+            }')
+
+          # Stash the payload for the next step (escape newlines for GH output)
+          {
+            echo "json<<SLACK_EOF"
+            echo "$PAYLOAD"
+            echo "SLACK_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      # ── 2. Post to Slack via chat.postMessage ──
+      - name: Send to Slack
+        uses: slackapi/slack-github-action@37ebaef184d7626c5f204ab8d3baff4262dd30f0 # v1.27.0
+        with:
+          channel-id: C0ALY3XA6GZ                          # Sapience AI internal channel
+          payload: ${{ steps.payload.outputs.json }}
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}  # STUB — set via repo Secrets

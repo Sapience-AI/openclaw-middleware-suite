@@ -4,7 +4,7 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *     https://www.apache.org/licenses/LICENSE-2.0
  */
 
 /**
@@ -88,11 +88,12 @@ export function resolveProvider(
       const providerConfig = providers[providerName];
 
       if (providerConfig) {
+        const { apiKey: providerKey } = providerConfig;
         return {
           adapter: FORMAT_TO_ADAPTER[providerConfig.format] || openaiAdapter,
           providerName,
           baseUrl: providerConfig.baseUrl,
-          apiKey: providerConfig.apiKey,
+          apiKey: providerKey,
         };
       }
 
@@ -111,11 +112,12 @@ export function resolveProvider(
   if (discovered) {
     const providerConfig = providers[discovered.provider];
     if (providerConfig) {
+      const { apiKey: providerKey } = providerConfig;
       return {
         adapter: FORMAT_TO_ADAPTER[providerConfig.format] || openaiAdapter,
         providerName: discovered.provider,
         baseUrl: providerConfig.baseUrl,
-        apiKey: providerConfig.apiKey,
+        apiKey: providerKey,
       };
     }
   }

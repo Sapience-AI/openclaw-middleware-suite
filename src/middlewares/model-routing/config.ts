@@ -29,7 +29,7 @@ import { MomentumConfig, DEFAULT_MOMENTUM_CONFIG } from './session/momentum.js';
 import { SessionStoreConfig, DEFAULT_SESSION_STORE_CONFIG } from './session/session-store.js';
 import { ResponseCacheConfig, DEFAULT_RESPONSE_CACHE_CONFIG } from './cache/response-cache.js';
 import { CostAlertConfig, DEFAULT_COST_ALERT_CONFIG } from './storage/cost-tracker.js';
-import { RoutingProfile } from './selection/profiles.js';
+import { RoutingProfile, PROFILE_CONFIGS } from './selection/profiles.js';
 import { getOpenAIApiKey, getOpenAIBaseUrl } from '../../shared/env.js';
 
 // ---------------------------------------------------------------------------
@@ -43,7 +43,12 @@ export interface ModelRoutingConfig {
   targetApiKey: string;
 
   scoring: ScoringConfig;
-  tiers: Record<Tier, TierModelConfig>;
+  /** Per-profile tier-to-model mappings. The proxy looks up
+   *  `tiersByProfile[resolvedProfile]` at request time. Each profile
+   *  (`eco` / `premium` / `agentic`) carries its own primary + fallbacks
+   *  per tier; profiles missing a slot inherit the static `PROFILE_CONFIGS`
+   *  default. */
+  tiersByProfile: Record<RoutingProfile, Record<Tier, TierModelConfig>>;
 
   /** Multi-provider connections (Phase 3) */
   providers: Record<string, ProviderConfig>;
@@ -66,8 +71,9 @@ export interface ModelRoutingConfig {
   /** Cost tracking alerts (Phase 5) */
   costAlerts: CostAlertConfig;
   /** Provider-level prompt caching (Anthropic cache_control markers today).
-   *  Gated on session.enabled — caching without pinning wastes the markers
-   *  because follow-ups may land on a different model with no cached prefix. */
+   *  Independent of session pinning — even without per-session model pinning,
+   *  same-model requests within the cache window benefit from provider-side
+   *  prefix reuse. */
   providerCache: ProviderCacheConfig;
 }
 
@@ -1483,21 +1489,6 @@ export const DEFAULT_SCORING_CONFIG: ScoringConfig = {
 };
 
 // ---------------------------------------------------------------------------
-// Default tier → model assignments
-// ---------------------------------------------------------------------------
-
-export const DEFAULT_TIER_MODELS: Record<Tier, TierModelConfig> = {
-  SIMPLE: { primary: 'gpt-4o-mini', fallbacks: [] },
-  STANDARD: { primary: 'gpt-4o', fallbacks: [] },
-  COMPLEX: { primary: 'claude-sonnet-4-6', fallbacks: [] },
-  REASONING: { primary: 'o3', fallbacks: [] },
-};
-
-// ---------------------------------------------------------------------------
-// Full default config
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
 // Default classifier config
 // ---------------------------------------------------------------------------
 
@@ -1531,7 +1522,7 @@ export const DEFAULT_MODEL_ROUTING_CONFIG: ModelRoutingConfig = {
   targetApiKey: getOpenAIApiKey() || '',
 
   scoring: DEFAULT_SCORING_CONFIG,
-  tiers: DEFAULT_TIER_MODELS,
+  tiersByProfile: PROFILE_CONFIGS,
   providers: {},
   classifier: DEFAULT_CLASSIFIER_CONFIG,
   dedup: DEFAULT_DEDUP_CONFIG,
@@ -1540,7 +1531,7 @@ export const DEFAULT_MODEL_ROUTING_CONFIG: ModelRoutingConfig = {
   // Phase 4: Session Intelligence
   momentum: DEFAULT_MOMENTUM_CONFIG,
   session: DEFAULT_SESSION_STORE_CONFIG,
-  defaultProfile: 'auto',
+  defaultProfile: 'eco',
 
   // Phase 5: Production Hardening
   responseCache: DEFAULT_RESPONSE_CACHE_CONFIG,

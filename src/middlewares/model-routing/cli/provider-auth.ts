@@ -4,7 +4,7 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *     https://www.apache.org/licenses/LICENSE-2.0
  */
 
 /**
@@ -189,8 +189,8 @@ export function resolveProviderConfig(
 ):
   | { name: string; baseUrl: string; apiKey: string; format: 'openai' | 'anthropic' | 'google' }
   | undefined {
-  const apiKey = getApiKeyForProvider(provider);
-  if (!apiKey) return undefined;
+  const resolved = getApiKeyForProvider(provider);
+  if (!resolved) return undefined;
 
   const baseUrl =
     process.env[`${provider.toUpperCase()}_BASE_URL`] ||
@@ -198,5 +198,5 @@ export function resolveProviderConfig(
     PROVIDER_BASE_URLS.openai;
   const format = PROVIDER_FORMATS[provider] || 'openai';
 
-  return { name: provider, baseUrl, apiKey, format };
+  return { name: provider, baseUrl, apiKey: resolved, format };
 }

@@ -4,7 +4,7 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *     https://www.apache.org/licenses/LICENSE-2.0
  */
 
 /**
@@ -111,7 +111,7 @@ export const fetchContextEditingConfig = () =>
   request<Record<string, unknown>>('/api/context-editing/config');
 
 export const updateContextEditingConfig = (config: Record<string, unknown>) =>
-  request<{ ok: boolean }>('/api/context-editing/config', {
+  request<{ ok: boolean; restarted?: boolean }>('/api/context-editing/config', {
     method: 'PUT',
     body: JSON.stringify(config),
   });

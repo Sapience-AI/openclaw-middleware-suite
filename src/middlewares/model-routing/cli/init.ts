@@ -4,7 +4,7 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *     https://www.apache.org/licenses/LICENSE-2.0
  */
 
 /**
@@ -12,9 +12,16 @@
  * Interactive setup for SAI-Model-Routing-Middleware within OpenClaw.
  *
  * Steps:
- *  1. Select a routing profile (eco / auto / premium / agentic)
- *  2. Configure tier-to-model mappings (or accept profile defaults)
- *  3. (Optional) Set a universal fallback model for all tiers
+ *  1. (Optional) Customize tier-to-model mappings for any of the three
+ *     profiles (eco / premium / agentic). Profiles the user doesn't
+ *     customize get discovery-based defaults from buildProfileFromDiscovered.
+ *  2. (Optional) Set a universal fallback model applied across every tier
+ *     of every profile.
+ *
+ * All three profiles are always exposed to OpenClaw — there is no "default
+ * profile" concept at the user-facing level. Each profile carries its own
+ * tier→model map under `tierOverridesByProfile[profile]` so editing one
+ * doesn't disturb the others.
  *
  * Model list sources:
  *  - Live provider API discovery (Anthropic, Google, OpenAI) for the
@@ -23,25 +30,36 @@
  *    fallback when a provider's discovery call returns nothing.
  *
  * Writes:
- *  - sapience-ai-suite.json → model_routing: profile, tier overrides,
- *    provider configs for every configured provider.
+ *  - sapience-ai-suite.json → model_routing: per-profile tier overrides
+ *    and provider configs for every configured provider.
  *  - model-routing/discovered-models.json: authoritative list for the
  *    dashboard dropdown. Written once per sai init; the gateway is a
  *    pure consumer.
  *  - openclaw.json: sai-router provider entry + allowlist (via stage
  *    + flush).
  *
- * On re-run, shows the user's previous tier configuration and allows
- * editing rather than starting from scratch.
+ * On re-run, existing per-profile configurations are preserved and shown as
+ * the starting point for any customization the user opts into.
  */
 
 import inquirer from 'inquirer';
 import chalk from 'chalk';
 import { ModelRoutingDiscovery } from '../storage/ModelRoutingDiscovery.js';
-import { ModelRoutingPolicyStore } from '../storage/ModelRoutingPolicyStore.js';
+import {
+  ModelRoutingPolicyStore,
+  type ModelRoutingPolicyData,
+} from '../storage/ModelRoutingPolicyStore.js';
 import { VALID_PROFILES, PROFILE_DESCRIPTIONS, RoutingProfile } from '../selection/profiles.js';
 import { buildProfileFromDiscovered } from '../selection/profiles.js';
-import { Tier, TierModelConfig, DiscoveredModel, ProviderConfig } from '../types.js';
+import {
+  Tier,
+  TierBoundaries,
+  TierModelConfig,
+  OverrideConfig,
+  DiscoveredModel,
+  ProviderConfig,
+} from '../types.js';
+import { DEFAULT_SCORING_CONFIG } from '../config.js';
 import { SAPIENCE_MW_STORE_FILE } from '../../../shared/Logger.js';
 import { resolveProviderConfig } from './provider-auth.js';
 import { discoverAllModels, normalizeDiscoveredModels } from '../providers/discovery.js';
@@ -148,7 +166,6 @@ export async function initModelRoutingMiddleware(
   const store = new ModelRoutingDiscovery();
   store.load();
   const existingData = store.getData();
-  const isRerun = !!(existingData.defaultProfile || existingData.tierOverrides);
 
   // ── Detect configured providers ────────────────────────────────────────
   // Read from openclaw.json auth.profiles via config-manager API
@@ -230,99 +247,71 @@ export async function initModelRoutingMiddleware(
     console.log(chalk.dim(`  ${effectiveWizard.length} usable models available.\n`));
   }
 
-  // (existing config shown after profile selection below)
+  // ── Build per-profile default tiers from discovery ────────────────────────
+  // All three profiles always exist in the OpenClaw model picker. Each one
+  // gets a starting tier configuration computed from the discovered models
+  // (or the static fallback if discovery returned nothing). The user can
+  // then optionally customize any of them; the rest keep these defaults.
+  const profileDefaults: Record<RoutingProfile, Record<Tier, TierModelConfig>> = {
+    eco: buildProfileFromDiscovered('eco', effectiveWizard),
+    premium: buildProfileFromDiscovered('premium', effectiveWizard),
+    agentic: buildProfileFromDiscovered('agentic', effectiveWizard),
+  };
 
-  // ── Step 1: Select routing profile ────────────────────────────────────────
-
-  let selectedProfile: RoutingProfile;
-
-  if (nonInteractive) {
-    selectedProfile = existingData.defaultProfile || 'auto';
-  } else {
-    if (!jsonMode) {
-      console.log(chalk.bold('Step 1: Routing Profile'));
-      console.log(chalk.dim('Profiles control the cost-vs-quality tradeoff across all tiers.'));
-      console.log('');
-    }
-
-    const currentProfile = existingData.defaultProfile || 'auto';
-
-    const answer = await inquirer.prompt([
-      {
-        type: 'list',
-        name: 'profile',
-        message: 'Which routing profile would you like to use?',
-        choices: VALID_PROFILES.map((p) => ({
-          name: `${p.padEnd(10)} ${PROFILE_DESCRIPTIONS[p]}${p === currentProfile ? chalk.green(' (current)') : ''}`,
-          value: p,
-        })),
-        default: currentProfile,
-      },
-    ]);
-
-    selectedProfile = answer.profile;
-
-    if (!jsonMode) {
-      console.log(chalk.green(`   Profile set to: ${selectedProfile}`));
+  // Per-profile tier overrides we'll persist. Seeded from existing per-profile
+  // overrides on re-runs so the user's saved customizations survive.
+  const tierOverridesByProfile: Partial<
+    Record<RoutingProfile, Partial<Record<Tier, TierModelConfig>>>
+  > = {};
+  for (const p of VALID_PROFILES) {
+    const existing = existingData.tierOverridesByProfile?.[p];
+    if (existing && Object.keys(existing).length > 0) {
+      tierOverridesByProfile[p] = { ...existing };
     }
   }
 
-  // Build profile tiers from the effective wizard list. Either real
-  // discovery or the date-stripped catalog projection — both produce
-  // already-stripped names so tier overrides match the dashboard dropdown.
-  const profileTiers = buildProfileFromDiscovered(selectedProfile, effectiveWizard);
-
-  if (!jsonMode && !nonInteractive) {
-    if (
-      isRerun &&
-      existingData.tierOverrides &&
-      Object.keys(existingData.tierOverrides).length > 0
-    ) {
-      // Re-run: show user's saved config (profile + their overrides)
-      const savedEffective = buildEffectiveTiers(profileTiers, existingData.tierOverrides);
-      console.log(chalk.dim('\n   Your current tier configuration:'));
-      formatTierTable(savedEffective);
-    } else {
-      // First run: show what the profile algorithm picked
-      console.log(chalk.dim('\n   Default models for this profile:'));
-      formatTierTable(profileTiers);
-    }
-  }
-
-  // ── Step 2: Configure tier models ─────────────────────────────────────────
-
-  // Start from previous user overrides (not blank) so re-runs preserve config
-  let tierOverrides: Partial<Record<Tier, TierModelConfig>> = {};
-  if (existingData.tierOverrides) {
-    tierOverrides = { ...existingData.tierOverrides };
-  }
+  // ── Step 1: Optional per-profile tier customization ───────────────────────
 
   if (!nonInteractive) {
     if (!jsonMode) {
-      console.log(chalk.bold('Step 2: Tier Model Configuration'));
+      console.log(chalk.bold('Step 1: Tier Model Configuration (optional)'));
       console.log(
         chalk.dim(
-          'Override which model handles each complexity tier, or keep the profile defaults.'
+          'All three profiles (eco / premium / agentic) are always available in the OpenClaw'
         )
+      );
+      console.log(
+        chalk.dim('model picker. You can customize any of them — the rest use sensible defaults.')
       );
       console.log('');
     }
 
-    const hasExistingOverrides = Object.keys(tierOverrides).length > 0;
-
-    const { customizeTiers } = await inquirer.prompt([
+    const { wantToCustomize } = await inquirer.prompt([
       {
         type: 'confirm',
-        name: 'customizeTiers',
-        message: hasExistingOverrides
-          ? 'Would you like to edit your tier model configuration?'
-          : 'Would you like to customize the model for any tier?',
-        default: hasExistingOverrides,
+        name: 'wantToCustomize',
+        message: 'Would you like to customize tier mappings for any profile?',
+        default: false,
       },
     ]);
 
-    if (customizeTiers) {
-      // Group models by provider for display
+    if (wantToCustomize) {
+      const { profilesToCustomize } = await inquirer.prompt([
+        {
+          type: 'checkbox',
+          name: 'profilesToCustomize',
+          message: 'Which profile(s) do you want to configure? (space to select)',
+          choices: VALID_PROFILES.map((p) => ({
+            name: `${p.padEnd(10)} ${PROFILE_DESCRIPTIONS[p]}${
+              tierOverridesByProfile[p] ? chalk.green(' (configured)') : chalk.dim(' (defaults)')
+            }`,
+            value: p,
+            checked: !!tierOverridesByProfile[p],
+          })),
+        },
+      ]);
+
+      // Group models by provider for display (shared across profiles).
       const grouped = new Map<string, DiscoveredModel[]>();
       for (const m of effectiveWizard) {
         const list = grouped.get(m.provider) || [];
@@ -330,122 +319,129 @@ export async function initModelRoutingMiddleware(
         grouped.set(m.provider, list);
       }
 
-      for (const tier of TIERS) {
-        // Show previous override or profile default
-        const currentModel = tierOverrides[tier]?.primary || profileTiers[tier].primary;
-        const isOverridden = !!tierOverrides[tier];
-
+      for (const profile of profilesToCustomize as RoutingProfile[]) {
         if (!jsonMode) {
           console.log('');
-          console.log(chalk.cyan(`   ${tier}: ${TIER_DESCRIPTIONS[tier]}`));
-          if (isOverridden) {
-            console.log(chalk.dim(`   Currently set to: ${currentModel}`));
-          }
+          console.log(
+            chalk.bold.cyan(`── ${profile} profile — ${PROFILE_DESCRIPTIONS[profile]} ──`)
+          );
         }
 
-        // Build choices: current/recommended first, then all models grouped by provider
-        const profileModel = profileTiers[tier].primary;
-        const topLabel = isOverridden
-          ? `${currentModel} ${chalk.green('(your current choice)')}`
-          : `${profileModel} ${chalk.dim(`(${selectedProfile} profile pick)`)}`;
-        const topValue = isOverridden ? currentModel : '__default__';
+        const profileTiers = profileDefaults[profile];
+        const slot = (tierOverridesByProfile[profile] ?? {}) as Partial<
+          Record<Tier, TierModelConfig>
+        >;
 
-        const choices: Array<
-          { name: string; value: string } | typeof inquirer.Separator.prototype
-        > = [{ name: topLabel, value: topValue }];
+        for (const tier of TIERS) {
+          const currentModel = slot[tier]?.primary || profileTiers[tier].primary;
+          const isOverridden = !!slot[tier];
 
-        // If user's current choice differs from profile pick, also offer the profile pick
-        if (isOverridden && currentModel !== profileModel) {
-          const profileEntry = effectiveWizard.find((m) => m.id === profileModel);
-          if (profileEntry) {
-            choices.push({
-              name: `${formatModelChoice(profileEntry).name} ${chalk.dim(`(${selectedProfile} profile pick)`)}`,
-              value: '__default__',
-            });
+          if (!jsonMode) {
+            console.log('');
+            console.log(chalk.cyan(`   ${tier}: ${TIER_DESCRIPTIONS[tier]}`));
+            if (isOverridden) {
+              console.log(chalk.dim(`   Currently set to: ${currentModel}`));
+            }
           }
-        }
 
-        for (const [provider, models] of grouped) {
-          choices.push(new inquirer.Separator(chalk.dim(`── ${provider} ──`)));
-          for (const m of models) {
-            // Skip models already shown above
-            if (m.id === profileModel) continue;
-            if (isOverridden && m.id === currentModel) continue;
-            choices.push(formatModelChoice(m));
+          const profileModel = profileTiers[tier].primary;
+          const topLabel = isOverridden
+            ? `${currentModel} ${chalk.green('(your current choice)')}`
+            : `${profileModel} ${chalk.dim(`(${profile} profile pick)`)}`;
+          const topValue = isOverridden ? currentModel : '__default__';
+
+          const choices: Array<
+            { name: string; value: string } | typeof inquirer.Separator.prototype
+          > = [{ name: topLabel, value: topValue }];
+
+          if (isOverridden && currentModel !== profileModel) {
+            const profileEntry = effectiveWizard.find((m) => m.id === profileModel);
+            if (profileEntry) {
+              choices.push({
+                name: `${formatModelChoice(profileEntry).name} ${chalk.dim(
+                  `(${profile} profile pick)`
+                )}`,
+                value: '__default__',
+              });
+            }
           }
-        }
 
-        choices.push(new inquirer.Separator(chalk.dim('──────────')));
-        choices.push({ name: 'Custom model...', value: '__custom__' });
+          for (const [provider, models] of grouped) {
+            choices.push(new inquirer.Separator(chalk.dim(`── ${provider} ──`)));
+            for (const m of models) {
+              if (m.id === profileModel) continue;
+              if (isOverridden && m.id === currentModel) continue;
+              choices.push(formatModelChoice(m));
+            }
+          }
 
-        const { modelChoice } = await inquirer.prompt([
-          {
-            type: 'list',
-            name: 'modelChoice',
-            message: `${tier} tier model:`,
-            choices,
-            default: isOverridden ? currentModel : '__default__',
-          },
-        ]);
+          choices.push(new inquirer.Separator(chalk.dim('──────────')));
+          choices.push({ name: 'Custom model...', value: '__custom__' });
 
-        if (modelChoice === '__default__') {
-          // User accepted the profile pick — save it explicitly so runtime
-          // uses exactly this model (not a different auto-assigned one).
-          tierOverrides[tier] = {
-            primary: profileTiers[tier].primary,
-            fallbacks: [...profileTiers[tier].fallbacks],
-          };
-        } else if (modelChoice === currentModel && isOverridden) {
-          // User kept their existing choice — keep the override as-is
-        } else if (modelChoice === '__custom__') {
-          const { customModel } = await inquirer.prompt([
+          const { modelChoice } = await inquirer.prompt([
             {
-              type: 'input',
-              name: 'customModel',
-              message: `Enter model name for ${tier}:`,
-              validate: (val: string) => val.trim().length > 0 || 'Model name cannot be empty',
+              type: 'list',
+              name: 'modelChoice',
+              message: `${tier} tier model:`,
+              choices,
+              default: isOverridden ? currentModel : '__default__',
             },
           ]);
-          tierOverrides[tier] = { primary: customModel.trim(), fallbacks: [] };
-        } else {
-          tierOverrides[tier] = { primary: modelChoice, fallbacks: [] };
-        }
-      }
 
-      if (!jsonMode) {
-        console.log('');
-        console.log(chalk.dim('   Final tier configuration:'));
-        const merged = buildEffectiveTiers(profileTiers, tierOverrides);
-        formatTierTable(merged);
-      }
-    } else {
-      if (hasExistingOverrides) {
-        // Re-run: keep user's existing config
+          if (modelChoice === '__default__') {
+            slot[tier] = {
+              primary: profileTiers[tier].primary,
+              fallbacks: [...profileTiers[tier].fallbacks],
+            };
+          } else if (modelChoice === currentModel && isOverridden) {
+            // keep as-is
+          } else if (modelChoice === '__custom__') {
+            const { customModel } = await inquirer.prompt([
+              {
+                type: 'input',
+                name: 'customModel',
+                message: `Enter model name for ${tier}:`,
+                validate: (val: string) => val.trim().length > 0 || 'Model name cannot be empty',
+              },
+            ]);
+            slot[tier] = { primary: customModel.trim(), fallbacks: [] };
+          } else {
+            slot[tier] = { primary: modelChoice, fallbacks: [] };
+          }
+        }
+
+        tierOverridesByProfile[profile] = slot;
+
         if (!jsonMode) {
-          console.log(chalk.green('   Keeping your existing tier configuration.'));
           console.log('');
-        }
-      } else {
-        // First run: save profile defaults explicitly so runtime matches init
-        for (const tier of TIERS) {
-          tierOverrides[tier] = {
-            primary: profileTiers[tier].primary,
-            fallbacks: [...profileTiers[tier].fallbacks],
-          };
-        }
-        if (!jsonMode) {
-          console.log(chalk.green('   Using profile defaults (saved to config).'));
-          console.log('');
+          console.log(chalk.dim(`   Final ${profile} tier configuration:`));
+          formatTierTable(buildEffectiveTiers(profileTiers, slot));
         }
       }
+    } else if (!jsonMode) {
+      console.log(
+        chalk.green('   Skipping customization — saving discovery-based defaults for all profiles.')
+      );
+      console.log('');
     }
   }
 
-  // ── Step 3: Universal fallback model ──────────────────────────────────────
+  // For any profile the user didn't customize (and that doesn't already have
+  // a saved override slot from a previous run), persist the discovery-based
+  // defaults so the runtime has an explicit configuration for every profile.
+  for (const p of VALID_PROFILES) {
+    if (!tierOverridesByProfile[p] || Object.keys(tierOverridesByProfile[p]!).length === 0) {
+      tierOverridesByProfile[p] = { ...profileDefaults[p] };
+    }
+  }
+
+  // ── Step 2: Universal fallback model ──────────────────────────────────────
 
   if (!nonInteractive && !jsonMode) {
-    console.log(chalk.bold('Step 3: Universal Fallback Model'));
-    console.log(chalk.dim('Set a fallback model that will be added to ALL tiers as a safety net.'));
+    console.log(chalk.bold('Step 2: Universal Fallback Model'));
+    console.log(
+      chalk.dim('Set a fallback model that will be added to ALL tiers across all profiles.')
+    );
     console.log('');
 
     const { wantsFallback } = await inquirer.prompt([
@@ -458,7 +454,6 @@ export async function initModelRoutingMiddleware(
     ]);
 
     if (wantsFallback) {
-      // Build flat model list for fallback selection
       const fallbackChoices: Array<
         { name: string; value: string } | typeof inquirer.Separator.prototype
       > = [];
@@ -499,42 +494,194 @@ export async function initModelRoutingMiddleware(
         finalFallbackModel = customFb.trim();
       }
 
-      // Apply fallback to all tiers — both profile defaults and user overrides
-      const finalTiersBeforeFallback = buildEffectiveTiers(profileTiers, tierOverrides);
-      for (const tier of TIERS) {
-        const cfg = finalTiersBeforeFallback[tier];
-        // Add fallback if it's not already the primary
-        if (cfg.primary !== finalFallbackModel) {
-          const existingFallbacks = cfg.fallbacks.filter((f) => f !== finalFallbackModel);
-          tierOverrides[tier] = {
-            primary: cfg.primary,
-            fallbacks: [...existingFallbacks, finalFallbackModel],
-          };
+      // Apply fallback across every tier of every profile.
+      for (const profile of VALID_PROFILES) {
+        const slot = tierOverridesByProfile[profile]!;
+        for (const tier of TIERS) {
+          const cfg = slot[tier] || profileDefaults[profile][tier];
+          if (cfg.primary !== finalFallbackModel) {
+            const existingFallbacks = cfg.fallbacks.filter((f) => f !== finalFallbackModel);
+            slot[tier] = {
+              primary: cfg.primary,
+              fallbacks: [...existingFallbacks, finalFallbackModel],
+            };
+          }
         }
       }
 
       console.log(chalk.green(`   Universal fallback set: ${finalFallbackModel}`));
       console.log('');
-      console.log(chalk.dim('   Updated tier configuration:'));
-      formatTierTable(buildEffectiveTiers(profileTiers, tierOverrides));
     }
   }
 
-  // ── Save to unified store ─────────────────────────────────────────────────
+  // ── Step 3: Optional — customize scoring boundaries ─────────────────────
+  // The 3 thresholds that decide which tier a final dimension score lands
+  // in. Most users should not touch these; gated behind an explicit
+  // confirm so the wizard stays tight for the common case. Existing
+  // overrides (from a previous `sai init` or `sai router config
+  // --set-boundary`) are shown as the starting point so re-running
+  // doesn't surprise users.
+  let boundaryOverridesNew: ModelRoutingPolicyData['boundaryOverrides'] | undefined;
+  if (!nonInteractive && !jsonMode) {
+    console.log(chalk.bold('Step 3: Tier Scoring Boundaries (advanced)'));
+    console.log(
+      chalk.dim(
+        'Numeric cutoffs that map the final dimension score to a tier. Defaults work for most users.'
+      )
+    );
+    console.log('');
 
-  // Always persist effective tiers so the dashboard and runtime can read them.
-  // If the user didn't customize, save the profile defaults as the baseline.
-  const finalTierOverrides = Object.keys(tierOverrides).length > 0 ? tierOverrides : profileTiers;
+    const { wantsBoundaries } = await inquirer.prompt([
+      {
+        type: 'confirm',
+        name: 'wantsBoundaries',
+        message: 'Customize tier scoring boundaries?',
+        default: false,
+      },
+    ]);
 
-  // ── Resolve and save provider configs from selected tier models ──────────
-  // Merge profile defaults with overrides to get the final tier models
-  const finalTiers = buildEffectiveTiers(profileTiers, tierOverrides);
+    if (wantsBoundaries) {
+      const effective: TierBoundaries = {
+        ...DEFAULT_SCORING_CONFIG.boundaries,
+        ...existingData.boundaryOverrides,
+      };
+      const ans = await inquirer.prompt([
+        {
+          type: 'input',
+          name: 'simpleStandard',
+          message: 'simple → standard boundary (score below this = SIMPLE):',
+          default: String(effective.simpleStandard),
+          validate: (v: string) => !isNaN(parseFloat(v)) || 'Must be a number (e.g., -0.1)',
+        },
+        {
+          type: 'input',
+          name: 'standardComplex',
+          message: 'standard → complex boundary (score above this = COMPLEX or higher):',
+          default: String(effective.standardComplex),
+          validate: (v: string) => !isNaN(parseFloat(v)) || 'Must be a number (e.g., 0.08)',
+        },
+        {
+          type: 'input',
+          name: 'complexReasoning',
+          message: 'complex → reasoning boundary (score above this = REASONING):',
+          default: String(effective.complexReasoning),
+          validate: (v: string) => !isNaN(parseFloat(v)) || 'Must be a number (e.g., 0.35)',
+        },
+      ]);
+      // Only persist values the user actually changed — keeps the store
+      // sparse and readable, and lets future default tweaks reach
+      // un-customized installs.
+      const next: NonNullable<ModelRoutingPolicyData['boundaryOverrides']> = {
+        ...(existingData.boundaryOverrides ?? {}),
+      };
+      for (const key of ['simpleStandard', 'standardComplex', 'complexReasoning'] as const) {
+        const parsed = parseFloat(ans[key]);
+        if (parsed !== DEFAULT_SCORING_CONFIG.boundaries[key]) next[key] = parsed;
+        else delete next[key];
+      }
+      boundaryOverridesNew = Object.keys(next).length > 0 ? next : undefined;
+      console.log(chalk.green('   Boundaries saved.'));
+      console.log('');
+    }
+  }
 
-  // Collect all unique model IDs across tiers (primary + fallbacks)
+  // ── Step 4: Optional — customize override thresholds ────────────────────
+  // The 4 fast-path classification rules that bypass dimension scoring:
+  // shortMessageChars, largeContextTokens, reasoningKeywordMin, and
+  // structuredOutputMinTier (the only non-numeric one — a tier name).
+  let overrideThresholdsNew: ModelRoutingPolicyData['overrideThresholds'] | undefined;
+  if (!nonInteractive && !jsonMode) {
+    console.log(chalk.bold('Step 4: Override Thresholds (advanced)'));
+    console.log(
+      chalk.dim(
+        'Fast-path classification rules that bypass dimension scoring (e.g., short messages → SIMPLE).'
+      )
+    );
+    console.log('');
+
+    const { wantsOverrides } = await inquirer.prompt([
+      {
+        type: 'confirm',
+        name: 'wantsOverrides',
+        message: 'Customize override thresholds?',
+        default: false,
+      },
+    ]);
+
+    if (wantsOverrides) {
+      const effective: OverrideConfig = {
+        ...DEFAULT_SCORING_CONFIG.overrides,
+        ...existingData.overrideThresholds,
+      };
+      const ans = await inquirer.prompt([
+        {
+          type: 'input',
+          name: 'shortMessageChars',
+          message: 'Short-message threshold (chars below = SIMPLE bypass):',
+          default: String(effective.shortMessageChars),
+          validate: (v: string) =>
+            (!isNaN(parseInt(v, 10)) && parseInt(v, 10) >= 0) || 'Must be a non-negative integer',
+        },
+        {
+          type: 'input',
+          name: 'largeContextTokens',
+          message: 'Large-context threshold (tokens above → COMPLEX floor):',
+          default: String(effective.largeContextTokens),
+          validate: (v: string) =>
+            (!isNaN(parseInt(v, 10)) && parseInt(v, 10) > 0) || 'Must be a positive integer',
+        },
+        {
+          type: 'input',
+          name: 'reasoningKeywordMin',
+          message: 'Reasoning-keyword count to force REASONING:',
+          default: String(effective.reasoningKeywordMin),
+          validate: (v: string) =>
+            (!isNaN(parseInt(v, 10)) && parseInt(v, 10) >= 1) || 'Must be a positive integer',
+        },
+        {
+          type: 'list',
+          name: 'structuredOutputMinTier',
+          message: 'Floor tier when response_format is set:',
+          choices: ['SIMPLE', 'STANDARD', 'COMPLEX', 'REASONING'],
+          default: effective.structuredOutputMinTier,
+        },
+      ]);
+      const next: Partial<OverrideConfig> = {
+        ...(existingData.overrideThresholds ?? {}),
+      };
+      const parsedSmc = parseInt(ans.shortMessageChars, 10);
+      if (parsedSmc !== DEFAULT_SCORING_CONFIG.overrides.shortMessageChars)
+        next.shortMessageChars = parsedSmc;
+      else delete next.shortMessageChars;
+      const parsedLct = parseInt(ans.largeContextTokens, 10);
+      if (parsedLct !== DEFAULT_SCORING_CONFIG.overrides.largeContextTokens)
+        next.largeContextTokens = parsedLct;
+      else delete next.largeContextTokens;
+      const parsedRkm = parseInt(ans.reasoningKeywordMin, 10);
+      if (parsedRkm !== DEFAULT_SCORING_CONFIG.overrides.reasoningKeywordMin)
+        next.reasoningKeywordMin = parsedRkm;
+      else delete next.reasoningKeywordMin;
+      if (ans.structuredOutputMinTier !== DEFAULT_SCORING_CONFIG.overrides.structuredOutputMinTier)
+        next.structuredOutputMinTier = ans.structuredOutputMinTier as Tier;
+      else delete next.structuredOutputMinTier;
+      overrideThresholdsNew = Object.keys(next).length > 0 ? next : undefined;
+      console.log(chalk.green('   Override thresholds saved.'));
+      console.log('');
+    }
+  }
+
+  // ── Resolve and save provider configs from every tier of every profile ──
+  // Collect all unique model IDs across tiers across profiles (primary + fallbacks)
   const allModelIds = new Set<string>();
-  for (const cfg of Object.values(finalTiers)) {
-    allModelIds.add(cfg.primary);
-    for (const fb of cfg.fallbacks) allModelIds.add(fb);
+  for (const profile of VALID_PROFILES) {
+    const effective = buildEffectiveTiers(
+      profileDefaults[profile],
+      tierOverridesByProfile[profile]
+    );
+    for (const cfg of Object.values(effective)) {
+      allModelIds.add(cfg.primary);
+      for (const fb of cfg.fallbacks) allModelIds.add(fb);
+    }
   }
 
   // Build provider configs for every provider the user has an API key for,
@@ -596,14 +743,20 @@ export async function initModelRoutingMiddleware(
     warnings.push(warning);
   }
 
-  // Commit profile + tierOverrides + providerConfigs in one merge-save.
-  // Sibling fields (weightOverrides, boundaryOverrides, exclusions, pinning
-  // toggles) are preserved via update()'s shallow merge.
-  await ModelRoutingPolicyStore.update({
-    defaultProfile: selectedProfile,
-    tierOverrides: finalTierOverrides,
+  // Commit per-profile tier overrides + providerConfigs + any optional
+  // boundary / override-threshold customizations the user accepted in the
+  // wizard, all in one merge-save. Sibling fields (weightOverrides,
+  // exclusions, pinning toggles, defaultProfile) are preserved via
+  // update()'s shallow merge. `boundaryOverrides` / `overrideThresholds`
+  // are only included when the user opted into customization — otherwise
+  // we leave whatever was already in the store untouched.
+  const updatePayload: Partial<ModelRoutingPolicyData> = {
+    tierOverridesByProfile,
     providerConfigs: mergedProviderConfigs,
-  });
+  };
+  if (boundaryOverridesNew !== undefined) updatePayload.boundaryOverrides = boundaryOverridesNew;
+  if (overrideThresholdsNew !== undefined) updatePayload.overrideThresholds = overrideThresholdsNew;
+  await ModelRoutingPolicyStore.update(updatePayload);
 
   if (!jsonMode) {
     console.log(chalk.green('  Configuration saved to unified store.'));
@@ -631,13 +784,15 @@ export async function initModelRoutingMiddleware(
     console.log(chalk.green('  Model Routing setup complete.'));
     console.log('');
     console.log(chalk.bold('Quick Commands:'));
-    console.log(chalk.dim('   Test a prompt:         sai router test "your prompt here"'));
-    console.log(chalk.dim('   View stats:            sai router stats'));
-    console.log(chalk.dim('   Change profile:        sai router config --set-profile <profile>'));
+    console.log(chalk.dim('   Test a prompt:           sai router test "your prompt here"'));
+    console.log(chalk.dim('   View stats:              sai router stats'));
+    console.log(chalk.dim('   View tier mappings:      sai router tiers'));
     console.log(
-      chalk.dim('   Override a tier model:  sai router tiers --set "COMPLEX claude-opus-4-6"')
+      chalk.dim(
+        '   Edit a profile tier:     sai router tiers --profile premium --set "COMPLEX claude-opus-4-6"'
+      )
     );
-    console.log(chalk.dim('   View current config:    sai router config'));
+    console.log(chalk.dim('   View current config:     sai router config'));
     console.log('');
   }
 
@@ -651,8 +806,8 @@ export async function initModelRoutingMiddleware(
     nextSteps: [
       'Test a prompt: sai router test "your prompt here"',
       'View stats: sai router stats',
-      'Change profile: sai router config --set-profile <profile>',
-      'Override tier model: sai router tiers --set "COMPLEX claude-opus-4-6"',
+      'View tier mappings: sai router tiers',
+      'Edit a profile tier: sai router tiers --profile premium --set "COMPLEX claude-opus-4-6"',
     ],
   };
 }
