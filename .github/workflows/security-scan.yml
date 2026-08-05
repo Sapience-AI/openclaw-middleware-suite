@@ -17,7 +17,7 @@
 #   ./.github/workflows/checkov.yml
 #   ./.github/workflows/security-precommit.yml   (pre-commit + gitleaks history)
 #
-# Runners: sapience-default (GKE self-hosted).
+# Runners: ubuntu-latest (GitHub-hosted, ADR-0020) — the called reusable workflows set runs-on.
 # =============================================================================
 
 name: "Security Scan"

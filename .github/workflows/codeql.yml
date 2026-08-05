@@ -15,7 +15,7 @@ permissions: {}
 jobs:
   analyze:
     name: CodeQL (${{ matrix.language }})
-    runs-on: sapience-default
+    runs-on: ubuntu-latest
     timeout-minutes: 30
 
     permissions:

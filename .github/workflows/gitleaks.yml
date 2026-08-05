@@ -48,11 +48,10 @@ concurrency:
 jobs:
   gitleaks:
     name: Gitleaks secret scan
-    # Self-hosted GKE runner — gitleaks is pre-installed in the runner image.
-    # No install step: the runner image pins the gitleaks version at build time.
-    # sudo-based install is incompatible with allowPrivilegeEscalation: false.
-    # ARC scale-set routing: bare scale set name only (label arrays require minRunners>=1).
-    runs-on: sapience-default
+    # GitHub-hosted runner (ADR-0020). Gitleaks is installed per-run below —
+    # the MIT OSS engine binary (NOT gitleaks/gitleaks-action, which is paid for
+    # orgs), pinned + SHA256-verified to match the sapience-runner image.
+    runs-on: ubuntu-latest
     timeout-minutes: 15
 
     steps:
@@ -67,11 +66,17 @@ jobs:
           # after the job and credentials never outlive the run.
           persist-credentials: true
 
-      - name: Verify Gitleaks (pre-installed in runner image)
-        # gitleaks is installed at image build time (see gcp-runners/runner-image/Dockerfile).
-        # The sudo-based reinstall step used on GitHub-hosted runners is not compatible
-        # with the self-hosted runner's security context (allowPrivilegeEscalation: false).
-        run: gitleaks version
+      - name: Install Gitleaks (pinned + SHA256-verified, matches sapience-runner image)
+        env:
+          GITLEAKS_VERSION: "8.30.0"
+          GITLEAKS_SHA256: "79a3ab579b53f71efd634f3aaf7e04a0fa0cf206b7ed434638d1547a2470a66e"
+        run: |
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" -o gitleaks.tgz
+          echo "${GITLEAKS_SHA256}  gitleaks.tgz" | sha256sum -c -
+          tar -xzf gitleaks.tgz gitleaks
+          sudo install -m 0755 gitleaks /usr/local/bin/gitleaks
+          rm -f gitleaks.tgz gitleaks
+          gitleaks version
 
       - name: Run Gitleaks (PR diff-only)
         if: github.event_name == 'pull_request'
