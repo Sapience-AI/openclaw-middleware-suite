@@ -17,6 +17,9 @@ name: "Security Pre-commit Scan"
 
 on:
   workflow_call:
+    secrets:
+      SLACK_BOT_TOKEN:
+        required: false
   workflow_dispatch:
 
 permissions:

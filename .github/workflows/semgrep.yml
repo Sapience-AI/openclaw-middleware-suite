@@ -25,6 +25,9 @@ name: semgrep
 # in existing code that was clean when first committed.
 on:
   workflow_call:
+    secrets:
+      SLACK_WEBHOOK_URL:
+        required: false
   schedule:
     # Weekly full scan — Mondays 06:00 UTC (rule-update catch)
     - cron: "0 6 * * 1"

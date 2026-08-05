@@ -22,6 +22,9 @@ name: checkov
 # IaC that was clean when originally committed.
 on:
   workflow_call:
+    secrets:
+      SLACK_WEBHOOK_URL:
+        required: false
   schedule:
     # Weekly full scan — Tuesdays 06:00 UTC (offset from Semgrep Monday run)
     - cron: "0 6 * * 2"

@@ -30,6 +30,9 @@ name: trufflehog
 # This is a unique value the tier runs cannot provide at merge time.
 on:
   workflow_call:
+    secrets:
+      SLACK_WEBHOOK_URL:
+        required: false
   schedule:
     # Nightly full-history re-scan — 03:00 UTC
     - cron: "0 3 * * *"
