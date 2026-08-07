@@ -50,6 +50,7 @@ jobs:
     name: ClawHub dry-run
     if: github.event_name == 'pull_request'
     permissions:
+      actions: read       # nested job reads run artifacts (package / inspector / publish-json)
       contents: read
       id-token: write     # reusable workflow resolves its own source via OIDC
     uses: openclaw/clawhub/.github/workflows/package-publish.yml@64db9c3fae6632758f35f3d3e8089469c0ae808b # main as of 2026-08-06
@@ -64,6 +65,7 @@ jobs:
       github.event_name == 'release' ||
       (github.event_name == 'workflow_dispatch' && inputs.dry_run == false)
     permissions:
+      actions: read       # nested job reads run artifacts (package / inspector / publish-json)
       contents: read
       id-token: write     # OIDC trusted publishing on workflow_dispatch
     uses: openclaw/clawhub/.github/workflows/package-publish.yml@64db9c3fae6632758f35f3d3e8089469c0ae808b # main as of 2026-08-06
@@ -80,6 +82,7 @@ jobs:
     name: ClawHub manual dry-run
     if: github.event_name == 'workflow_dispatch' && inputs.dry_run == true
     permissions:
+      actions: read       # nested job reads run artifacts (package / inspector / publish-json)
       contents: read
       id-token: write
     uses: openclaw/clawhub/.github/workflows/package-publish.yml@64db9c3fae6632758f35f3d3e8089469c0ae808b # main as of 2026-08-06
