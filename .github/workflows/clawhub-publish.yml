@@ -28,6 +28,22 @@ on:
 # what it needs. Mirrors the convention in ci.yml and npm-publish.yml.
 permissions: {}
 
+# ── The @SHA pin below is a control, not a style choice — do not revert to @main ──
+# `openclaw/clawhub` is an EXTERNAL org, and the publish job hands its workflow our
+# CLAWHUB_TOKEN and an `id-token: write` OIDC identity. Referenced at a mutable
+# `@main`, anyone who can push to (or compromise) that branch could change what runs
+# inside our publish job at any time, with our publish credential in scope. The commit
+# SHA is immutable, so the code we reviewed is the code that runs. Same discipline as
+# the `actions/checkout@<sha>` pins elsewhere in this repo.
+#
+# Updating: bump the SHA deliberately. Dependabot's `github-actions` ecosystem
+# (.github/dependabot.yml) tracks reusable-workflow refs and will open a PR when
+# upstream moves — review that diff rather than re-floating the ref.
+#
+# Residual worth knowing: pinning fixes *this* file at a known commit, but that file's
+# own internal `uses:` references are outside our control. The durable fix is to
+# fork/vendor package-publish.yml into Sapience-AI and pin that.
+
 jobs:
   # PR runs are dry-run only so CI never publishes from untrusted refs.
   dry-run:
@@ -36,7 +52,7 @@ jobs:
     permissions:
       contents: read
       id-token: write     # reusable workflow resolves its own source via OIDC
-    uses: openclaw/clawhub/.github/workflows/package-publish.yml@main
+    uses: openclaw/clawhub/.github/workflows/package-publish.yml@64db9c3fae6632758f35f3d3e8089469c0ae808b # main as of 2026-08-06
     with:
       dry_run: true
 
@@ -50,7 +66,7 @@ jobs:
     permissions:
       contents: read
       id-token: write     # OIDC trusted publishing on workflow_dispatch
-    uses: openclaw/clawhub/.github/workflows/package-publish.yml@main
+    uses: openclaw/clawhub/.github/workflows/package-publish.yml@64db9c3fae6632758f35f3d3e8089469c0ae808b # main as of 2026-08-06
     with:
       dry_run: false
       owner: sapience-ai-corporation
@@ -66,6 +82,6 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    uses: openclaw/clawhub/.github/workflows/package-publish.yml@main
+    uses: openclaw/clawhub/.github/workflows/package-publish.yml@64db9c3fae6632758f35f3d3e8089469c0ae808b # main as of 2026-08-06
     with:
       dry_run: true
