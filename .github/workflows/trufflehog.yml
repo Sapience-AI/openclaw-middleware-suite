@@ -30,6 +30,9 @@ name: trufflehog
 # This is a unique value the tier runs cannot provide at merge time.
 on:
   workflow_call:
+    secrets:
+      SLACK_WEBHOOK_URL:
+        required: false
   schedule:
     # Nightly full-history re-scan — 03:00 UTC
     - cron: "0 3 * * *"
@@ -47,9 +50,10 @@ concurrency:
 jobs:
   trufflehog:
     name: TruffleHog verified-credential scan
-    # Self-hosted GKE runner — trufflehog is pre-installed in the runner image.
-    # ARC scale-set routing: bare scale set name only (label arrays require minRunners>=1).
-    runs-on: sapience-default
+    # GitHub-hosted runner (ADR-0020). TruffleHog is installed per-run below —
+    # the OSS binary (NOT trufflesecurity/trufflehog action, which needs Docker),
+    # pinned + SHA256-verified to match the sapience-runner image.
+    runs-on: ubuntu-latest
     timeout-minutes: 45
 
     steps:
@@ -58,6 +62,18 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Install TruffleHog (pinned + SHA256-verified, matches sapience-runner image)
+        env:
+          TRUFFLEHOG_VERSION: "3.93.7"
+          TRUFFLEHOG_SHA256: "a87e178a2643238e31bee50261b681e29f0d502c00deb10055bd7570413e0a87"
+        run: |
+          curl -sSfL "https://github.com/trufflesecurity/trufflehog/releases/download/v${TRUFFLEHOG_VERSION}/trufflehog_${TRUFFLEHOG_VERSION}_linux_amd64.tar.gz" -o trufflehog.tgz
+          echo "${TRUFFLEHOG_SHA256}  trufflehog.tgz" | sha256sum -c -
+          tar -xzf trufflehog.tgz trufflehog
+          sudo install -m 0755 trufflehog /usr/local/bin/trufflehog
+          rm -f trufflehog.tgz trufflehog
+          trufflehog --version
 
       - name: Run TruffleHog (verified only)
         id: trufflehog

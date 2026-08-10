@@ -47,7 +47,7 @@ jobs:
     name: Post to Slack
     # ARC scale-set routing: use bare scale-set name (no array).
     # Sapience self-hosted runner pool — courtesy of @thomas (DevOps).
-    runs-on: sapience-default
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       contents: read

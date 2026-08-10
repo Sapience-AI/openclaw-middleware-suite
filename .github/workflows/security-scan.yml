@@ -17,7 +17,7 @@
 #   ./.github/workflows/checkov.yml
 #   ./.github/workflows/security-precommit.yml   (pre-commit + gitleaks history)
 #
-# Runners: sapience-default (GKE self-hosted).
+# Runners: ubuntu-latest (GitHub-hosted, ADR-0020) — the called reusable workflows set runs-on.
 # =============================================================================
 
 name: "Security Scan"
@@ -42,12 +42,14 @@ jobs:
   gitleaks:
     name: "gitleaks"
     uses: ./.github/workflows/gitleaks.yml
-    secrets: inherit
+    secrets:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 
   semgrep:
     name: "semgrep"
     uses: ./.github/workflows/semgrep.yml
-    secrets: inherit
+    secrets:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 
   trufflehog:
     name: "trufflehog"
@@ -55,16 +57,19 @@ jobs:
       github.event_name == 'pull_request' ||
       (github.event_name == 'push' && github.ref == 'refs/heads/main')
     uses: ./.github/workflows/trufflehog.yml
-    secrets: inherit
+    secrets:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 
   checkov:
     name: "checkov"
     if: github.event_name == 'pull_request'
     uses: ./.github/workflows/checkov.yml
-    secrets: inherit
+    secrets:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 
   pre-commit:
     name: "pre-commit"
     if: github.event_name == 'pull_request'
     uses: ./.github/workflows/security-precommit.yml
-    secrets: inherit
+    secrets:
+      SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}

@@ -22,6 +22,9 @@ name: checkov
 # IaC that was clean when originally committed.
 on:
   workflow_call:
+    secrets:
+      SLACK_WEBHOOK_URL:
+        required: false
   schedule:
     # Weekly full scan — Tuesdays 06:00 UTC (offset from Semgrep Monday run)
     - cron: "0 6 * * 2"
@@ -37,9 +40,9 @@ concurrency:
 jobs:
   checkov:
     name: Checkov IaC scan
-    # Self-hosted GKE runner — checkov is pre-installed in the runner image.
-    # ARC scale-set routing: bare scale set name only.
-    runs-on: sapience-default
+    # GitHub-hosted runner (ADR-0020). The "Ensure Checkov" step below installs
+    # checkov==3.2.510 (matches the sapience-runner image) since it isn't preinstalled here.
+    runs-on: ubuntu-latest
     timeout-minutes: 20
 
     steps:
@@ -50,12 +53,12 @@ jobs:
           persist-credentials: false
 
       - name: Ensure Checkov is available
-        # Checkov is baked into the sapience-runner image. This step is a
-        # fast no-op when the image is current; it installs checkov at runtime
-        # only if the running pod predates the image rebuild that added it.
+        # On ubuntu-latest checkov is not preinstalled, so this installs the pinned
+        # version (matches the sapience-runner image). The guard keeps it a no-op if
+        # a future base image ever ships checkov.
         run: |
           if ! command -v checkov &>/dev/null; then
-            echo "checkov not found in PATH — installing via pip (stale runner pod)"
+            echo "checkov not found in PATH — installing pinned version via pip"
             pip install checkov==3.2.510 --break-system-packages --quiet
           else
             echo "checkov $(checkov --version) already available"

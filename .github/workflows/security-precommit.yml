@@ -9,14 +9,17 @@
 #   pre-commit       — runs .pre-commit-config.yaml hooks if present (SAST, lint)
 #   gitleaks-history — full git history secret scan (always runs)
 #
-# Runners: sapience-default (GKE Autopilot, self-hosted)
-# Tools pre-installed in runner image: python3, pre-commit, gitleaks, semgrep
+# Runners: ubuntu-latest (GitHub-hosted, ADR-0020). pre-commit is pip-installed in-job;
+# gitleaks is the pinned + SHA256-verified OSS binary (matches sapience-runner image).
 # ═══════════════════════════════════════════════════════════════════
 
 name: "Security Pre-commit Scan"
 
 on:
   workflow_call:
+    secrets:
+      SLACK_BOT_TOKEN:
+        required: false
   workflow_dispatch:
 
 permissions:
@@ -25,7 +28,7 @@ permissions:
 jobs:
   pre-commit:
     name: "Pre-commit checks"
-    runs-on: sapience-default
+    runs-on: ubuntu-latest
     timeout-minutes: 15
 
     steps:
@@ -56,7 +59,7 @@ jobs:
   # GITLEAKS_LICENSE secret). The engine itself is MIT — we use the engine.
   gitleaks-history:
     name: "Gitleaks history scan"
-    runs-on: sapience-default
+    runs-on: ubuntu-latest
     timeout-minutes: 10
 
     steps:
@@ -65,6 +68,18 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Install Gitleaks (pinned + SHA256-verified, matches sapience-runner image)
+        env:
+          GITLEAKS_VERSION: "8.30.0"
+          GITLEAKS_SHA256: "79a3ab579b53f71efd634f3aaf7e04a0fa0cf206b7ed434638d1547a2470a66e"
+        run: |
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" -o gitleaks.tgz
+          echo "${GITLEAKS_SHA256}  gitleaks.tgz" | sha256sum -c -
+          tar -xzf gitleaks.tgz gitleaks
+          sudo install -m 0755 gitleaks /usr/local/bin/gitleaks
+          rm -f gitleaks.tgz gitleaks
+          gitleaks version
 
       - name: Run gitleaks (full history)
         run: |

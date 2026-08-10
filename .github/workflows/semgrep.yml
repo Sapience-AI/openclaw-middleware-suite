@@ -25,6 +25,9 @@ name: semgrep
 # in existing code that was clean when first committed.
 on:
   workflow_call:
+    secrets:
+      SLACK_WEBHOOK_URL:
+        required: false
   schedule:
     # Weekly full scan — Mondays 06:00 UTC (rule-update catch)
     - cron: "0 6 * * 1"
@@ -42,11 +45,10 @@ concurrency:
 jobs:
   semgrep:
     name: Semgrep OSS scan
-    # Self-hosted GKE runner — semgrep is pre-installed in the runner image.
-    # No `container:` block here: DinD was intentionally stripped from the runner
-    # image to reduce attack surface. semgrep is installed via pip in the Dockerfile.
-    # ARC scale-set routing: bare scale set name only (label arrays require minRunners>=1).
-    runs-on: sapience-default
+    # GitHub-hosted runner (ADR-0020: public repos never run on a credentialed
+    # self-hosted runner). Semgrep is installed per-run below, pinned to the same
+    # version the sapience-runner image used, so scan behavior is unchanged.
+    runs-on: ubuntu-latest
     timeout-minutes: 20
 
     steps:
@@ -59,6 +61,9 @@ jobs:
           # persist-credentials: true so semgrep ci can fetch the baseline commit for
           # PR diff scanning. Safe on ephemeral runner pods — pod destroyed after job.
           persist-credentials: true
+
+      - name: Install Semgrep (pinned to sapience-runner image version)
+        run: python3 -m pip install --quiet --break-system-packages "semgrep==1.161.0"
 
       - name: Run Semgrep (SARIF)
         # Rulesets (all OSS):
