@@ -45,3 +45,15 @@ updates:
     commit-message:
       prefix: "chore(actions)"
       include: "scope"
+    # Group the codeql-action sub-actions so they can never bump apart.
+    #
+    # Dependabot treats github/codeql-action/init, /autobuild and /analyze as
+    # three separate dependencies and will happily bump one of them. CodeQL
+    # requires all three to be the same version, so a split bump fails the run
+    # with: "Loaded a configuration file for version 'X', but running version 'Y'".
+    # That is exactly what PR #88 did (init -> 4.37.4, autobuild left at 4.35.2).
+    # Grouping makes a single PR that moves all three together.
+    groups:
+      codeql-action:
+        patterns:
+          - "github/codeql-action*"
