@@ -53,7 +53,7 @@ jobs:
       actions: read       # nested job reads run artifacts (package / inspector / publish-json)
       contents: read
       id-token: write     # reusable workflow resolves its own source via OIDC
-    uses: openclaw/clawhub/.github/workflows/package-publish.yml@82313c2bb17fb8401c41c8ed2b0144d42b461ae7 # main as of 2026-08-06
+    uses: openclaw/clawhub/.github/workflows/package-publish.yml@82313c2bb17fb8401c41c8ed2b0144d42b461ae7 # openclaw/clawhub main HEAD - review each Dependabot bump diff, never float to @main
     with:
       dry_run: true
 
@@ -68,7 +68,7 @@ jobs:
       actions: read       # nested job reads run artifacts (package / inspector / publish-json)
       contents: read
       id-token: write     # OIDC trusted publishing on workflow_dispatch
-    uses: openclaw/clawhub/.github/workflows/package-publish.yml@82313c2bb17fb8401c41c8ed2b0144d42b461ae7 # main as of 2026-08-06
+    uses: openclaw/clawhub/.github/workflows/package-publish.yml@82313c2bb17fb8401c41c8ed2b0144d42b461ae7 # openclaw/clawhub main HEAD - review each Dependabot bump diff, never float to @main
     with:
       dry_run: false
       owner: sapience-ai-corporation
@@ -85,6 +85,6 @@ jobs:
       actions: read       # nested job reads run artifacts (package / inspector / publish-json)
       contents: read
       id-token: write
-    uses: openclaw/clawhub/.github/workflows/package-publish.yml@82313c2bb17fb8401c41c8ed2b0144d42b461ae7 # main as of 2026-08-06
+    uses: openclaw/clawhub/.github/workflows/package-publish.yml@82313c2bb17fb8401c41c8ed2b0144d42b461ae7 # openclaw/clawhub main HEAD - review each Dependabot bump diff, never float to @main
     with:
       dry_run: true
