@@ -176,8 +176,8 @@ jobs:
                   {\"type\": \"mrkdwn\", \"text\": \"*Findings:*\n${COUNT} secret(s)\"},
                   {\"type\": \"mrkdwn\", \"text\": \"*Trigger:*\n${GH_EVENT} on \`${GH_REF}\`\"}
                 ]},
-                {"type": "section", "text": {"type": "mrkdwn", "text": ":fire: Review the `gitleaks-sarif` artifact. Revoke any exposed credentials immediately."}},
-                {"type": "actions", "elements": [
-                  {"type": "button", "style": "danger", "text": {"type": "plain_text", "text": "View Run & Artifact"}, "url": "${GH_RUN_URL}"}
+                {\"type\": \"section\", \"text\": {\"type\": \"mrkdwn\", \"text\": \":fire: Review the \`gitleaks-sarif\` artifact. Revoke any exposed credentials immediately.\"}},
+                {\"type\": \"actions\", \"elements\": [
+                  {\"type\": \"button\", \"style\": \"danger\", \"text\": {\"type\": \"plain_text\", \"text\": \"View Run & Artifact\"}, \"url\": \"${GH_RUN_URL}\"}
                 ]}
               ]}"
