@@ -1,31 +1,21 @@
-# ═══════════════════════════════════════════════════════════════════════════════
-# SECURITY TIER 2 — PR Merge Gate  ★ BLOCKING ★
-# ═══════════════════════════════════════════════════════════════════════════════
+# Security — Tier 2: PR Merge Gate
 #
-# WHEN:   Every pull_request targeting main.
-# WHY:    Last line of defence before code reaches main. Runs the full
-#         security scanning suite in parallel so developers get fast feedback.
-# WHAT:   Gitleaks + Semgrep + TruffleHog (verified) + Checkov (IaC) +
-#         Pre-commit (SAST hooks + Gitleaks history), all from
-#         SapienceAICorp-Infrastructure reusable workflows.
+# Triggers on every pull_request targeting main. Runs the full Sapience
+# security scanning suite in parallel via reusable workflows from
+# SapienceAICorp-Infrastructure.
 #
-# This file is a pure trigger orchestrator. Scan logic lives in the called
-# reusable workflows. To change what a scan does, edit the tool workflow in
-# SapienceAICorp-Infrastructure, not this one.
+# check contexts for required_status_checks registration:
+#   gitleaks, semgrep, trufflehog, checkov, pre-commit
 #
-# CHECK CONTEXTS for required_status_checks registration (after advisory):
-#   gitleaks / Gitleaks secret scan
-#   semgrep / Semgrep OSS scan
-#   trufflehog / TruffleHog verified-credential scan
-#   checkov / Checkov IaC scan
-#   pre-commit / Pre-commit checks
-#   pre-commit / Gitleaks history scan
+# This file replaces the standalone secret-scan.yml. Do NOT run both — the
+# gitleaks reusable workflow uses concurrency: gitleaks-${{ github.ref }} with
+# cancel-in-progress: true, so two callers on the same ref will cancel each other.
 #
-# Register on the REPO-LEVEL ruleset only, NEVER org ruleset 21146884.
+# SHA provenance:
+#   gitleaks: 9d4e33bd85d8bd96a221e5d8b100e017a0af58b3 (detect fix + fail-closed)
+#   semgrep/trufflehog/checkov/pre-commit: a68354d9707c94fc5c30c158a745c493bbd8e8be
 #
-# Replaces the standalone secret-scan.yml (gitleaks-only caller). All coverage
-# from that file is included here plus four additional tools. Lineage: SAI-6591.
-# ═══════════════════════════════════════════════════════════════════════════════
+# Owned by: Platform Security
 
 name: "Security - Tier 2: PR Merge Gate"
 
@@ -46,21 +36,21 @@ permissions:
 
 jobs:
   gitleaks:
-    uses: Sapience-AI/SapienceAICorp-Infrastructure/.github/workflows/gitleaks.yml@9d4e33bd85d8bd96a221e5d8b100e017a0af58b3 # detect fix + fail-closed guard (TOOL-50)
+    uses: Sapience-AI/SapienceAICorp-Infrastructure/.github/workflows/gitleaks.yml@9d4e33bd85d8bd96a221e5d8b100e017a0af58b3
     secrets: inherit
 
   semgrep:
-    uses: Sapience-AI/SapienceAICorp-Infrastructure/.github/workflows/semgrep.yml@a68354d9707c94fc5c30c158a745c493bbd8e8be # Sapience Infrastructure main
+    uses: Sapience-AI/SapienceAICorp-Infrastructure/.github/workflows/semgrep.yml@a68354d9707c94fc5c30c158a745c493bbd8e8be
     secrets: inherit
 
   trufflehog:
-    uses: Sapience-AI/SapienceAICorp-Infrastructure/.github/workflows/trufflehog.yml@a68354d9707c94fc5c30c158a745c493bbd8e8be # Sapience Infrastructure main
+    uses: Sapience-AI/SapienceAICorp-Infrastructure/.github/workflows/trufflehog.yml@a68354d9707c94fc5c30c158a745c493bbd8e8be
     secrets: inherit
 
   checkov:
-    uses: Sapience-AI/SapienceAICorp-Infrastructure/.github/workflows/checkov.yml@a68354d9707c94fc5c30c158a745c493bbd8e8be # Sapience Infrastructure main
+    uses: Sapience-AI/SapienceAICorp-Infrastructure/.github/workflows/checkov.yml@a68354d9707c94fc5c30c158a745c493bbd8e8be
     secrets: inherit
 
   pre-commit:
-    uses: Sapience-AI/SapienceAICorp-Infrastructure/.github/workflows/security-scan.yaml@a68354d9707c94fc5c30c158a745c493bbd8e8be # Sapience Infrastructure main
+    uses: Sapience-AI/SapienceAICorp-Infrastructure/.github/workflows/security-scan.yaml@a68354d9707c94fc5c30c158a745c493bbd8e8be
     secrets: inherit
