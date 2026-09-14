@@ -1,0 +1,51 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# SECURITY TIER 3 — Post-Merge Main Baseline
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# WHEN:   Every push to main (after a PR merges).
+# WHY:    Re-runs the full static analysis against the actual merged state.
+#         Catches anything that diverged from the PR snapshot in the merge
+#         commit and provides an auditable baseline for every commit on main.
+# WHAT:   Gitleaks + Semgrep + TruffleHog + Checkov, all from
+#         SapienceAICorp-Infrastructure reusable workflows.
+#
+# This file is a pure trigger orchestrator. Scan logic lives in the called
+# reusable workflows. To change what a scan does, edit the tool workflow in
+# SapienceAICorp-Infrastructure, not this one.
+#
+# Lineage: SAI-6591.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+name: "Security - Tier 3: Post-Merge Main Baseline"
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: security-tier3-main
+  cancel-in-progress: false   # every main commit must have a completed baseline
+
+permissions:
+  contents: read
+  security-events: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  gitleaks:
+    uses: Sapience-AI/SapienceAICorp-Infrastructure/.github/workflows/gitleaks.yml@9d4e33bd85d8bd96a221e5d8b100e017a0af58b3 # detect fix + fail-closed guard (TOOL-50)
+    secrets: inherit
+
+  semgrep:
+    uses: Sapience-AI/SapienceAICorp-Infrastructure/.github/workflows/semgrep.yml@a68354d9707c94fc5c30c158a745c493bbd8e8be # Sapience Infrastructure main
+    secrets: inherit
+
+  trufflehog:
+    uses: Sapience-AI/SapienceAICorp-Infrastructure/.github/workflows/trufflehog.yml@a68354d9707c94fc5c30c158a745c493bbd8e8be # Sapience Infrastructure main
+    secrets: inherit
+
+  checkov:
+    uses: Sapience-AI/SapienceAICorp-Infrastructure/.github/workflows/checkov.yml@a68354d9707c94fc5c30c158a745c493bbd8e8be # Sapience Infrastructure main
+    secrets: inherit
