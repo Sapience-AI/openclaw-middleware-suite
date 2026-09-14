@@ -1,20 +1,14 @@
-# ═══════════════════════════════════════════════════════════════════════════════
-# SECURITY TIER 3 — Post-Merge Main Baseline
-# ═══════════════════════════════════════════════════════════════════════════════
+# Security — Tier 3: Post-Merge Main Baseline
 #
-# WHEN:   Every push to main (after a PR merges).
-# WHY:    Re-runs the full static analysis against the actual merged state.
-#         Catches anything that diverged from the PR snapshot in the merge
-#         commit and provides an auditable baseline for every commit on main.
-# WHAT:   Gitleaks + Semgrep + TruffleHog + Checkov, all from
-#         SapienceAICorp-Infrastructure reusable workflows.
+# Triggers on every push to main. Re-runs the security scanning suite
+# against the actual merged state. cancel-in-progress: false because every
+# main commit must have a completed baseline for audit evidence.
 #
-# This file is a pure trigger orchestrator. Scan logic lives in the called
-# reusable workflows. To change what a scan does, edit the tool workflow in
-# SapienceAICorp-Infrastructure, not this one.
+# SHA provenance:
+#   gitleaks: 9d4e33bd85d8bd96a221e5d8b100e017a0af58b3
+#   semgrep/trufflehog/checkov: a68354d9707c94fc5c30c158a745c493bbd8e8be
 #
-# Lineage: SAI-6591.
-# ═══════════════════════════════════════════════════════════════════════════════
+# Owned by: Platform Security
 
 name: "Security - Tier 3: Post-Merge Main Baseline"
 
@@ -25,7 +19,7 @@ on:
 
 concurrency:
   group: security-tier3-main
-  cancel-in-progress: false   # every main commit must have a completed baseline
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -35,17 +29,17 @@ permissions:
 
 jobs:
   gitleaks:
-    uses: Sapience-AI/SapienceAICorp-Infrastructure/.github/workflows/gitleaks.yml@9d4e33bd85d8bd96a221e5d8b100e017a0af58b3 # detect fix + fail-closed guard (TOOL-50)
+    uses: Sapience-AI/SapienceAICorp-Infrastructure/.github/workflows/gitleaks.yml@9d4e33bd85d8bd96a221e5d8b100e017a0af58b3
     secrets: inherit
 
   semgrep:
-    uses: Sapience-AI/SapienceAICorp-Infrastructure/.github/workflows/semgrep.yml@a68354d9707c94fc5c30c158a745c493bbd8e8be # Sapience Infrastructure main
+    uses: Sapience-AI/SapienceAICorp-Infrastructure/.github/workflows/semgrep.yml@a68354d9707c94fc5c30c158a745c493bbd8e8be
     secrets: inherit
 
   trufflehog:
-    uses: Sapience-AI/SapienceAICorp-Infrastructure/.github/workflows/trufflehog.yml@a68354d9707c94fc5c30c158a745c493bbd8e8be # Sapience Infrastructure main
+    uses: Sapience-AI/SapienceAICorp-Infrastructure/.github/workflows/trufflehog.yml@a68354d9707c94fc5c30c158a745c493bbd8e8be
     secrets: inherit
 
   checkov:
-    uses: Sapience-AI/SapienceAICorp-Infrastructure/.github/workflows/checkov.yml@a68354d9707c94fc5c30c158a745c493bbd8e8be # Sapience Infrastructure main
+    uses: Sapience-AI/SapienceAICorp-Infrastructure/.github/workflows/checkov.yml@a68354d9707c94fc5c30c158a745c493bbd8e8be
     secrets: inherit
