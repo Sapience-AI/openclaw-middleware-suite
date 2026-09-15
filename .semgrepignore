@@ -1,0 +1,11 @@
+# .semgrepignore — Paths excluded from Semgrep scanning.
+# Baseline triage: 2026-09-16, SAI-6591.
+
+# Restore semgrep built-in default: tests/ is excluded by semgrep's
+# internal defaults, but creating a custom .semgrepignore replaces them.
+# Re-add here so test fixtures don't trigger false positives.
+test/
+**/test/
+tests/
+**/tests/
+**/__tests__/
