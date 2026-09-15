@@ -62,3 +62,5 @@ jobs:
   pre-commit:  # pre-commit hooks + gitleaks history scan
     uses: Sapience-AI/SapienceAICorp-Infrastructure/.github/workflows/security-scan.yaml@a68354d9707c94fc5c30c158a745c493bbd8e8be
     secrets: inherit
+
+# canary: verify tier callers fire from this public repo (SAI-6591)
