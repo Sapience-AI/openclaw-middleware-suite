@@ -1,0 +1,48 @@
+# Security — Tier 3: Post-Merge Main Baseline
+#
+# Triggers on every push to main. Re-runs the security scanning suite
+# against the actual merged state. cancel-in-progress: false because every
+# main commit must have a completed baseline for audit evidence.
+#
+# SHA provenance:
+#   gitleaks: 9d4e33bd85d8bd96a221e5d8b100e017a0af58b3
+#   semgrep/trufflehog/checkov: a68354d9707c94fc5c30c158a745c493bbd8e8be
+#
+# Note: Tier 3 intentionally omits the pre-commit caller that Tier 2 runs.
+# This is a deliberate cost/latency choice for the post-merge baseline (PR-REQ-5).
+#
+# Owned by: Platform Security
+
+name: "Security - Tier 3: Post-Merge Main Baseline"
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: security-tier3-main
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  security-events: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  gitleaks:
+    uses: Sapience-AI/SapienceAICorp-Infrastructure/.github/workflows/gitleaks.yml@9d4e33bd85d8bd96a221e5d8b100e017a0af58b3
+    secrets: inherit
+
+  semgrep:
+    uses: Sapience-AI/SapienceAICorp-Infrastructure/.github/workflows/semgrep.yml@a68354d9707c94fc5c30c158a745c493bbd8e8be
+    secrets: inherit
+
+  trufflehog:
+    uses: Sapience-AI/SapienceAICorp-Infrastructure/.github/workflows/trufflehog.yml@a68354d9707c94fc5c30c158a745c493bbd8e8be
+    secrets: inherit
+
+  checkov:
+    uses: Sapience-AI/SapienceAICorp-Infrastructure/.github/workflows/checkov.yml@a68354d9707c94fc5c30c158a745c493bbd8e8be
+    secrets: inherit
