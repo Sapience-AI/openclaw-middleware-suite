@@ -16,4 +16,25 @@ regexes themselves are being tested, not real exposure.
 paths = [
   '''test/guardrail/.*''',
   '''test/pii-sanitizer/.*''',
+  '''\.env\.local\.example$''',
+  '''\.env\.sample$''',
+  '''\.env\.template$''',
 ]
+
+  regexTarget = "match"
+  regexes = [
+  # --- Org-wide false-positive patterns (Platform Security, SEC-84) ---
+  # Source of truth: SapienceAICorp-Infrastructure/.github/gitleaks/gitleaks.toml
+  # SAI ticket-convention identifiers (sai-NNNN-slug).
+  # Pytest parametrize IDs, config keys, branch names. Never secret material.
+  '''(?i)sai-\d{3,5}-[a-z][-a-z0-9]*''',
+  # GCP project identifiers (sapience-ai-*, sai-*-prod, etc.).
+  '''(?i)sapience-ai[-a-z0-9]+''',
+  '''(?i)sai-(?:prod|staging|dev|test)[-a-z0-9]*''',
+  # Well-known fake sk- patterns in test fixtures.
+  '''(?i)sk-(?:1234|test|fake|dummy|mock)[-a-z0-9]*''',
+  # Test key naming patterns.
+  '''(?i)(?:api[-_])?key[-_](?:for[-_])?test(?:ing|s)?''',
+  # Internal service-account naming convention. Non-secret identifiers.
+  '''(?i)(?:sa|svc)[-_][a-z][-a-z0-9]+@sapience[-a-z0-9.]*''',
+  ]
