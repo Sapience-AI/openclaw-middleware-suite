@@ -28,10 +28,12 @@ name: gitleaks
 #   security-tier2-pr-gate.yml    (PR to main — BLOCKING)
 #   security-tier3-main-baseline.yml (push to main)
 #
-# NOTE: When called via workflow_call, github.event_name == 'workflow_call' so
-# the PR diff-only branch is never taken — always runs full history scan.
-# This is intentional: full history is more thorough and the tiers own the
-# timing/scoping decisions, not this file.
+# NOTE: Inside a workflow_call, github.event_name reflects the CALLER's
+# trigger event — NOT 'workflow_call'. When a PR-gate orchestrator calls
+# this file on a pull_request, the diff-only branch IS taken
+# and the checkout above does fetch-depth: 1. The prior
+# comment here was false and caused five weeks of undetected inertness
+# (SAI-6591). Do not reintroduce "event_name == 'workflow_call'".
 on:
   workflow_call:
     secrets:
@@ -87,9 +89,32 @@ jobs:
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
-          # Fetch base and head so `gitleaks protect` can compute the diff range
+          # MUST be `detect --log-opts`, NOT `protect`. `protect` scans UNCOMMITTED
+          # working-tree changes and IGNORES --log-opts; on a clean CI checkout that is
+          # nothing, so it logged "0 commits scanned / ~0 bytes / no leaks found" and the
+          # required check went green having inspected NOTHING. Fixed SAI-6591.
           git fetch --no-tags --prune --depth=50 origin "$BASE" "$HEAD"
-          gitleaks protect \
+          # Fail-closed guard (SAI-6591 / TOOL-50): verify the diff range
+          # resolved to at least one commit. Without this, a shallow clone
+          # that did not reach BASE, a force-push that rewrote history, or
+          # a ref that vanished between trigger and checkout would cause
+          # gitleaks to scan 0 commits and exit 0 — the silent-pass shape
+          # this workflow exists to prevent (standing rule S1).
+          if ! git cat-file -e "${BASE}^{commit}" 2>/dev/null; then
+            echo "::error::BASE commit ${BASE} not reachable after fetch — failing closed."
+            exit 1
+          fi
+          if ! git cat-file -e "${HEAD}^{commit}" 2>/dev/null; then
+            echo "::error::HEAD commit ${HEAD} not reachable after fetch — failing closed."
+            exit 1
+          fi
+          DIFF_COUNT=$(git rev-list --count --no-merges "${BASE}..${HEAD}" 2>/dev/null || echo 0)
+          if [ "$DIFF_COUNT" -eq 0 ]; then
+            echo "::error::Range ${BASE}..${HEAD} resolved to 0 commits — failing closed."
+            exit 1
+          fi
+          echo "Range ${BASE}..${HEAD}: ${DIFF_COUNT} commit(s) to scan."
+          gitleaks detect \
             --source="." \
             --log-opts="--no-merges ${BASE}..${HEAD}" \
             --redact \
@@ -151,8 +176,8 @@ jobs:
                   {\"type\": \"mrkdwn\", \"text\": \"*Findings:*\n${COUNT} secret(s)\"},
                   {\"type\": \"mrkdwn\", \"text\": \"*Trigger:*\n${GH_EVENT} on \`${GH_REF}\`\"}
                 ]},
-                {"type": "section", "text": {"type": "mrkdwn", "text": ":fire: Review the `gitleaks-sarif` artifact. Revoke any exposed credentials immediately."}},
-                {"type": "actions", "elements": [
-                  {"type": "button", "style": "danger", "text": {"type": "plain_text", "text": "View Run & Artifact"}, "url": "${GH_RUN_URL}"}
+                {\"type\": \"section\", \"text\": {\"type\": \"mrkdwn\", \"text\": \":fire: Review the \`gitleaks-sarif\` artifact. Revoke any exposed credentials immediately.\"}},
+                {\"type\": \"actions\", \"elements\": [
+                  {\"type\": \"button\", \"style\": \"danger\", \"text\": {\"type\": \"plain_text\", \"text\": \"View Run & Artifact\"}, \"url\": \"${GH_RUN_URL}\"}
                 ]}
               ]}"
