@@ -7,13 +7,18 @@
 # public repo). This file is the trigger + conditional orchestrator.
 #
 # Tier 1 - push to any branch:        gitleaks + semgrep
-# Tier 2 - pull_request to main:      + trufflehog + checkov + pre-commit  (BLOCKING)
-# Tier 3 - push to main (post-merge): + trufflehog
+# Tier 2 - pull_request to main:      + checkov + pre-commit  (BLOCKING)
+# Tier 3 - push to main (post-merge): (no additional scanners here)
+#
+# TruffleHog (verified live-credential detection) is NOT called from this
+# file. trufflehog.yml carries its own nightly full-history schedule
+# (03:00 UTC) independent of PR/push — matches the Ring 0/Ring 1 model of
+# keeping PR gates fast and moving deep/historical scanning to schedule.
 #
 # Local reusable workflows:
 #   ./.github/workflows/gitleaks.yml
 #   ./.github/workflows/semgrep.yml
-#   ./.github/workflows/trufflehog.yml
+#   ./.github/workflows/trufflehog.yml             (scheduled only — see above)
 #   ./.github/workflows/checkov.yml
 #   ./.github/workflows/security-precommit.yml   (pre-commit + gitleaks history)
 #
@@ -48,15 +53,6 @@ jobs:
   semgrep:
     name: "semgrep"
     uses: ./.github/workflows/semgrep.yml
-    secrets:
-      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-
-  trufflehog:
-    name: "trufflehog"
-    if: |
-      github.event_name == 'pull_request' ||
-      (github.event_name == 'push' && github.ref == 'refs/heads/main')
-    uses: ./.github/workflows/trufflehog.yml
     secrets:
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 
